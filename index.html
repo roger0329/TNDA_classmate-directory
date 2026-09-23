@@ -391,6 +391,12 @@
   .submit-form button[type=submit]:disabled{opacity:0.4;cursor:default;}
   .submit-form button.text-btn{font-size:0.74rem;letter-spacing:0.06em;color:var(--muted);text-decoration:underline;}
   .submit-form button.text-btn:hover{color:var(--text);}
+  .danger-zone{
+    margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);
+    display:flex;flex-direction:column;gap:4px;
+  }
+  .submit-form button.danger-btn{color:#b00020;}
+  .submit-form button.danger-btn:hover{color:#7a0016;}
 
   ::selection{background:var(--text);color:var(--bg);}
 
@@ -510,6 +516,10 @@
         <button type="button" class="text-btn" id="editCancel">取消，重新查詢</button>
       </div>
       <p class="submit-msg" id="editMsg"></p>
+      <div class="danger-zone">
+        <button type="button" class="text-btn danger-btn" id="deleteAccountBtn">刪除我的資料</button>
+        <span class="submit-hint">會把你的資料從同學錄整個移除，無法復原。</span>
+      </div>
     </form>
   </div>
 </div>
@@ -1406,6 +1416,45 @@
       editingId = null;
       editingOldPhotoUrl = '';
       ePhotoAdjust.reset();
+    });
+
+    document.getElementById('deleteAccountBtn').addEventListener('click', function(){
+      if(!editingId) return;
+      var name = document.getElementById('eName').value.trim();
+      var ok = confirm('確定要把「' + (name || '這筆資料') + '」從同學錄刪除嗎？此動作無法復原。');
+      if(!ok) return;
+      var msg = document.getElementById('editMsg');
+      var btn = this;
+      var photoUrl = editingOldPhotoUrl;
+      var idToDelete = editingId;
+      btn.disabled = true;
+      setMsg(msg, '刪除中...', '');
+      sbClient.from('students').delete().eq('id', idToDelete).then(function(res){
+        btn.disabled = false;
+        if(res.error){
+          setMsg(msg, '刪除失敗：' + res.error.message, 'err');
+          return;
+        }
+        if(photoUrl){
+          var path = storagePathFromPublicUrl(photoUrl);
+          if(path){
+            sbClient.storage.from('photos').remove([path]).catch(function(err){
+              console.warn('同學錄：刪除照片檔案失敗(不影響資料已刪除)。', err);
+            });
+          }
+        }
+        editForm.hidden = true;
+        lookupForm.hidden = false;
+        editingId = null;
+        editingOldPhotoUrl = '';
+        ePhotoAdjust.reset();
+        var lookupMsg = document.getElementById('lookupMsg');
+        if(lookupMsg){ setMsg(lookupMsg, '已刪除你的資料。', 'ok'); }
+        loadFromSupabase();
+      }).catch(function(err){
+        btn.disabled = false;
+        setMsg(msg, '刪除失敗：' + (err && err.message || err), 'err');
+      });
     });
   })();
 
