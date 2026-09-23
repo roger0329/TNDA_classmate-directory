@@ -1600,6 +1600,7 @@
     var lookupForm = document.getElementById('lookupForm');
     var editForm = document.getElementById('editForm');
     var editingId = null;
+    var editingOldPhotoUrl = '';
 
     if(!sbClient){
       // no Supabase configured yet — hide the button rather than show a form that can't submit
@@ -1625,6 +1626,24 @@
           var pub = sbClient.storage.from('photos').getPublicUrl(path);
           return pub.data.publicUrl;
         });
+    }
+    // pulls the "<file>.jpg" path back out of a public Storage URL so a
+    // replaced photo's old file can be removed from the 'photos' bucket
+    function storagePathFromPublicUrl(url){
+      if(!url) return null;
+      var marker = '/storage/v1/object/public/photos/';
+      var idx = url.indexOf(marker);
+      if(idx === -1) return null;
+      try{ return decodeURIComponent(url.slice(idx + marker.length)); }
+      catch(e){ return url.slice(idx + marker.length); }
+    }
+    function deleteOldPhoto(oldUrl, newUrl){
+      if(!oldUrl || oldUrl === newUrl) return; // nothing uploaded, or somehow the same file
+      var oldPath = storagePathFromPublicUrl(oldUrl);
+      if(!oldPath) return;
+      sbClient.storage.from('photos').remove([oldPath]).catch(function(err){
+        console.warn('同學錄：刪除舊照片失敗(不影響新照片顯示)。', err);
+      });
     }
 
     // ---- circular photo-position adjuster: shows the chosen photo in a round
@@ -1774,6 +1793,7 @@
         if(!rows.length){ setMsg(msg, '查無資料，請確認姓名與密碼是否正確。', 'err'); return; }
         var d = rows[0];
         editingId = d.id;
+        editingOldPhotoUrl = d.photo_url || '';
         document.getElementById('eName').value = d.name || '';
         document.getElementById('eEmail').value = d.email || '';
         document.getElementById('eLinkedin').value = d.linkedin || '';
@@ -1803,7 +1823,9 @@
 
       btn.disabled = true;
       setMsg(msg, '更新中...', '');
+      var uploadedPhotoUrl = '';
       uploadPhoto(file).then(function(photoUrl){
+        uploadedPhotoUrl = photoUrl;
         var patch = {name:name, email:(email || null), linkedin:linkedin, portfolio:portfolio, bio:bio, tags:tags};
         // send the adjusted position whenever a photo is involved — either a
         // freshly uploaded one, or the existing one the student just dragged
@@ -1820,6 +1842,8 @@
           }
           return;
         }
+        // only once the new row is safely saved — remove the photo it replaced
+        if(uploadedPhotoUrl){ deleteOldPhoto(editingOldPhotoUrl, uploadedPhotoUrl); }
         setMsg(msg, '已更新！', 'ok');
         loadFromSupabase();
       }).catch(function(err){
@@ -1832,6 +1856,7 @@
       editForm.hidden = true;
       lookupForm.hidden = false;
       editingId = null;
+      editingOldPhotoUrl = '';
       ePhotoAdjust.reset();
     });
   })();
