@@ -600,6 +600,25 @@
   var indexList = document.getElementById('indexList');
   var currentData = [];
 
+  // Every student field (name, tags, bio, links, photo URL...) is untrusted
+  // input — anyone with the public anon key can write to the database
+  // directly, bypassing this page's own form entirely. Since several spots
+  // below build markup with innerHTML/style strings, everything that came
+  // from the database gets HTML-escaped before it's inserted, and link
+  // hrefs are restricted to http(s) only (blocks "javascript:" etc).
+  function escapeHtml(str){
+    return String(str == null ? '' : str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function safeHref(url){
+    var m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(url || '');
+    if(!m) return '';
+    var scheme = m[1].toLowerCase();
+    if(scheme !== 'http' && scheme !== 'https') return '';
+    return url;
+  }
+
   // ---- turn a Google Sheet CSV export into the roster array ----
   // shuffled fresh each page load, so the CD order isn't the same every visit
   function shuffleRoster(arr){
@@ -727,18 +746,19 @@
     data.forEach(function(d, i){
       var num = ('0'+(i+1)).slice(-2);
 
-      var photoPos = d.photoPos || '50% 50%';
+      var photoPos = escapeHtml(d.photoPos || '50% 50%');
+      var safeImage = escapeHtml(d.image || '');
       var coverInner = d.image
-        ? '<div class="disc-cover" style="background-image:url(\''+d.image+'\');background-position:'+photoPos+'"></div>'
-        : '<div class="disc-cover placeholder"><span class="ph-initial">'+d.initial+'</span></div>';
+        ? '<div class="disc-cover" style="background-image:url(\''+safeImage+'\');background-position:'+photoPos+'"></div>'
+        : '<div class="disc-cover placeholder"><span class="ph-initial">'+escapeHtml(d.initial)+'</span></div>';
 
-      var tagsHtml = d.tags.slice(0,5).map(function(t){ return '<span class="tag-chip">'+t+'</span>'; }).join('');
+      var tagsHtml = d.tags.slice(0,5).map(function(t){ return '<span class="tag-chip">'+escapeHtml(t)+'</span>'; }).join('');
 
       var wrap = document.createElement('div');
       wrap.className = 'disc-wrap';
       wrap.id = 'wrap-' + d.id;
       wrap.innerHTML =
-        '<div class="disc-3d" data-id="'+d.id+'">' +
+        '<div class="disc-3d" data-id="'+escapeHtml(d.id)+'">' +
           '<div class="disc-hl"></div>' +
           '<div class="disc-edge"></div>' +
           '<div class="disc-face disc-face-front">' +
@@ -756,21 +776,21 @@
           '</div>' +
         '</div>' +
         '<div class="disc-name">' +
-          '<span class="nm">'+d.name+'</span>' +
+          '<span class="nm">'+escapeHtml(d.name)+'</span>' +
           '<div class="disc-tags">'+tagsHtml+'</div>' +
         '</div>';
       stageInner.appendChild(wrap);
 
       var avatarInner = d.image
-        ? '<span class="iavatar" style="background-image:url(\''+d.image+'\');background-position:'+photoPos+'"></span>'
-        : '<span class="iavatar"><span class="iav-init">'+d.initial+'</span></span>';
+        ? '<span class="iavatar" style="background-image:url(\''+safeImage+'\');background-position:'+photoPos+'"></span>'
+        : '<span class="iavatar"><span class="iav-init">'+escapeHtml(d.initial)+'</span></span>';
 
       var item = document.createElement('a');
       item.className = 'index-item';
       item.dataset.target = d.id;
       item.innerHTML = avatarInner +
-        '<span class="nm">'+d.name+'</span>' +
-        '<span class="imeta mono">'+d.tags.slice(0,2).join(' · ')+'</span>';
+        '<span class="nm">'+escapeHtml(d.name)+'</span>' +
+        '<span class="imeta mono">'+escapeHtml(d.tags.slice(0,2).join(' · '))+'</span>';
       item.dataset.search = (d.name+' '+d.tags.join(' ')).toLowerCase();
       indexList.appendChild(item);
     });
@@ -807,7 +827,7 @@
     if(!activeFilterTags.length){ filterTagsEl.hidden = true; filterTagsEl.innerHTML = ''; return; }
     filterTagsEl.hidden = false;
     filterTagsEl.innerHTML = activeFilterTags.map(function(t){
-      return '<span class="filter-chip" data-tag="' + t.replace(/"/g,'&quot;') + '">' + t + ' ✕</span>';
+      return '<span class="filter-chip" data-tag="' + escapeHtml(t) + '">' + escapeHtml(t) + ' ✕</span>';
     }).join('') + (activeFilterTags.length > 1 ? '<span class="filter-clear" id="filterClearAll">全部清除</span>' : '');
     filterTagsEl.querySelectorAll('.filter-chip').forEach(function(chip){
       chip.addEventListener('click', function(){ removeFilterTag(chip.dataset.tag); });
@@ -1116,18 +1136,20 @@
     if(!d) return;
     document.getElementById('pName').textContent = d.name;
     document.getElementById('pTags').innerHTML = d.tags.slice(0,5).map(function(t){
-      return '<span class="tag-chip">'+t+'</span>';
+      return '<span class="tag-chip">'+escapeHtml(t)+'</span>';
     }).join('');
     document.getElementById('pBio').textContent = d.bio || '';
     document.getElementById('pBio').hidden = !d.bio;
     document.getElementById('pEmail').textContent = d.email || '';
     document.getElementById('pEmail').hidden = !d.email;
     var ctas = '';
-    if(d.linkedin){
-      ctas += '<a class="cta" href="'+d.linkedin+'" target="_blank" rel="noopener">看 LinkedIn 檔案 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
+    var safeLinkedin = safeHref(d.linkedin);
+    var safePortfolio = safeHref(d.portfolio);
+    if(safeLinkedin){
+      ctas += '<a class="cta" href="'+escapeHtml(safeLinkedin)+'" target="_blank" rel="noopener">看 LinkedIn 檔案 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
     }
-    if(d.portfolio){
-      ctas += '<a class="cta" href="'+d.portfolio+'" target="_blank" rel="noopener">看作品集 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
+    if(safePortfolio){
+      ctas += '<a class="cta" href="'+escapeHtml(safePortfolio)+'" target="_blank" rel="noopener">看作品集 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
     }
     document.getElementById('pCtas').innerHTML = ctas;
     panel.classList.add('open');
@@ -1261,7 +1283,7 @@
         pickerEl.innerHTML = pool.map(function(t){
           var active = sel.indexOf(t) !== -1;
           return '<button type="button" class="tag-pick-chip' + (active ? ' active' : '') + '" data-tag="' +
-            t.replace(/"/g,'&quot;') + '">' + t + '</button>';
+            escapeHtml(t) + '">' + escapeHtml(t) + '</button>';
         }).join('');
       }
       pickerEl.addEventListener('click', function(ev){
