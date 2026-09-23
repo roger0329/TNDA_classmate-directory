@@ -3,8 +3,9 @@
 -- 到 Supabase 專案 → 左側選單「SQL Editor」→ New query，
 -- 把這整份貼進去，按 Run 執行一次即可。
 --
--- 如果你的專案「已經」執行過更早的版本，不用整份重跑，
--- 直接跳到檔案最下面「如果你已經執行過舊版」那一段即可。
+-- 這份整份都是「可以重複執行」的(idempotent)：不管你是全新專案、
+-- 還是已經執行過舊版本，永遠只要複製這整份、整份貼上執行就好，
+-- 不用管之前跑到哪裡、也不會因為「已經存在」而報錯。
 -- ============================================================
 
 -- 1. 資料表：存放每位同學的資料
@@ -24,6 +25,10 @@ create table if not exists students (
   created_at timestamptz not null default now()
 );
 
+-- 補齊舊版資料表可能缺少的欄位/限制(全新安裝時這幾行不會做任何事)
+alter table students alter column email drop not null;
+alter table students add column if not exists photo_pos text default '50% 50%';
+
 -- 2. 打開 Row Level Security(列層級安全性)
 alter table students enable row level security;
 
@@ -32,7 +37,9 @@ alter table students enable row level security;
 --     出現 "permission denied for table students"。
 --     注意：這裡「不」把 select 整欄開放給 anon — 下面第 2c 點會另外
 --     用「只列出欄位」的方式開放 select，刻意不包含 edit_pin(密碼)，
---     避免同學能直接用 API 讀到別人的密碼。
+--     避免同學能直接用 API 讀到別人的密碼。如果之前執行過舊版把整表
+--     select 開放給 anon，這裡也會先收回再改成安全的版本。
+revoke select on students from anon;
 grant insert, update, delete on students to anon;
 
 -- 2c. anon 也需要能「看到」資料列，UPDATE / DELETE 的 WHERE 條件才找得到
@@ -45,7 +52,8 @@ grant insert, update, delete on students to anon;
 grant select (id, name, tags, bio, linkedin, portfolio, photo_url, photo_pos, email, created_at)
   on students to anon;
 
--- 3. 任何人都可以「新增」一筆自己的資料(交表單用)
+-- 3. RLS 規則：用「先刪再建」確保這份 SQL 可以重複執行不出錯
+drop policy if exists "anyone can insert their own row" on students;
 create policy "anyone can insert their own row"
   on students for insert
   to anon
@@ -54,6 +62,7 @@ create policy "anyone can insert their own row"
 -- 3b. 任何人都可以「看到」資料列(上面第 2c 點已經把實際能讀到的
 --     欄位限制在不含密碼)，這條 policy 本身要開，UPDATE / DELETE
 --     才能正確找到、影響到目標那一列。
+drop policy if exists "anyone can select rows" on students;
 create policy "anyone can select rows"
   on students for select
   to anon
@@ -64,6 +73,7 @@ create policy "anyone can select rows"
 --    密碼檢查是網頁程式呼叫下面第 6 點的函式先驗證過才會執行更新。
 --    這是給教室內部使用的輕量防呆機制，不是真正的帳號驗證，
 --    詳見 README.md「關於安全性，誠實的提醒」。
+drop policy if exists "anyone can update a row" on students;
 create policy "anyone can update a row"
   on students for update
   to anon
@@ -73,6 +83,7 @@ create policy "anyone can update a row"
 -- 4b. 任何人都可以「刪除」資料(同學刪除自己帳號用)
 --     同樣沒有在資料庫層面檢查密碼，密碼檢查發生在網頁呼叫刪除前
 --     先用第 6 點的登入函式驗證過，這是同一套輕量防呆機制。
+drop policy if exists "anyone can delete a row" on students;
 create policy "anyone can delete a row"
   on students for delete
   to anon
@@ -81,6 +92,8 @@ create policy "anyone can delete a row"
 -- 5. 公開檢視用的「View」— 只包含要顯示在網頁上的欄位，
 --    刻意不包含 edit_pin，這欄不會透過這個 View 被讀到。
 --    email 有包含在內：同學可以選擇要不要填，填了才會顯示在個人頁面上。
+--    (用「drop 再 create」而不是 create or replace，因為
+--    create or replace view 沒辦法插入欄位到中間，只能加在最後面。)
 drop view if exists students_public;
 
 create view students_public as
@@ -93,7 +106,9 @@ grant select on students_public to anon;
 -- 6. 登入驗證函式：網頁呼叫這個函式來檢查「姓名 + 編輯密碼」是否吻合，
 --    吻合才回傳資料(不含 edit_pin 本身)，讓同學可以進入編輯畫面。
 --    (不用 Email 登入，因為 Email 現在是選填欄位。)
-create or replace function verify_student_login(p_name text, p_pin text)
+drop function if exists verify_student_login(text, text);
+
+create function verify_student_login(p_name text, p_pin text)
 returns table (
   id uuid, name text, tags text[], bio text,
   linkedin text, portfolio text, photo_url text, photo_pos text, email text
@@ -121,11 +136,13 @@ on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+drop policy if exists "anyone can upload photos" on storage.objects;
 create policy "anyone can upload photos"
   on storage.objects for insert
   to anon
   with check (bucket_id = 'photos');
 
+drop policy if exists "anyone can view photos" on storage.objects;
 create policy "anyone can view photos"
   on storage.objects for select
   to anon
@@ -133,87 +150,8 @@ create policy "anyone can view photos"
 
 -- 允許刪除：換照片時，網頁會自動把換掉的舊照片從這裡刪除，
 -- 避免同學一直換照片導致 Storage 空間被舊檔案佔滿。
+drop policy if exists "anyone can delete photos" on storage.objects;
 create policy "anyone can delete photos"
   on storage.objects for delete
   to anon
   using (bucket_id = 'photos');
-
--- ============================================================
--- 如果你已經執行過舊版(不論是最早那版「Email 必填」的，還是
--- 中間那版「改用姓名+密碼登入」但還沒有 photo_pos 的)，
--- 不需要整份重跑，只要在 SQL Editor 開一個新 query，
--- 把下面這一段貼上、按 Run 就會更新成最新版本。
--- 這段可以重複執行，不會出錯。
--- ============================================================
-
-alter table students alter column email drop not null;
-alter table students add column if not exists photo_pos text default '50% 50%';
-
--- 補開資料表本身的操作權限(GRANT)給 anon 角色 — 沒有這行，
--- 即使 RLS policy 都允許，還是會出現 "permission denied for table students"。
--- 如果之前執行過整表 select 的版本(grant select on students to anon)，
--- 這裡先收回，改成下面「只列出欄位、不含 edit_pin」的版本，避免密碼外洩。
-revoke select on students from anon;
-grant insert, update, delete on students to anon;
-grant select (id, name, tags, bio, linkedin, portfolio, photo_url, photo_pos, email, created_at)
-  on students to anon;
-
-do $$ begin
-  create policy "anyone can select rows"
-    on students for select
-    to anon
-    using (true);
-exception when duplicate_object then null;
-end $$;
-
-do $$ begin
-  create policy "anyone can delete a row"
-    on students for delete
-    to anon
-    using (true);
-exception when duplicate_object then null;
-end $$;
-
--- create or replace view can only append columns at the end, not insert one
--- in the middle of the existing column order — drop and recreate instead
-drop view if exists students_public;
-
-create view students_public as
-  select id, name, tags, bio, linkedin, portfolio, photo_url, photo_pos, email, created_at
-  from students
-  order by created_at asc;
-
-grant select on students_public to anon;
-
-drop function if exists verify_student_login(text, text);
-
-create function verify_student_login(p_name text, p_pin text)
-returns table (
-  id uuid, name text, tags text[], bio text,
-  linkedin text, portfolio text, photo_url text, photo_pos text, email text
-)
-language sql
-security definer
-set search_path = public
-as $$
-  select id, name, tags, bio, linkedin, portfolio, photo_url, photo_pos, email
-  from students
-  where trim(name) = trim(p_name) and edit_pin = p_pin
-  limit 1;
-$$;
-
-grant execute on function verify_student_login(text, text) to anon;
-
-do $$ begin
-  create policy "anyone can delete photos"
-    on storage.objects for delete
-    to anon
-    using (bucket_id = 'photos');
-exception when duplicate_object then null;
-end $$;
-
--- 補上檔案大小/類型限制的資料庫層面防護(之前的版本只有靠網頁端檢查)
-update storage.buckets
-set file_size_limit = 5242880,
-    allowed_mime_types = array['image/jpeg','image/png','image/webp','image/gif']
-where id = 'photos';
