@@ -92,14 +92,31 @@
 
   /* two physical faces of the disc, back-to-back — like a real CD: label side (photo) vs data side (grooves) */
   /* which face paints is driven entirely by JS (see updateFace) rather than
-     backface-visibility, which didn't cull reliably mid-rotation here */
+     backface-visibility, which didn't cull reliably mid-rotation here.
+     Each face sits slightly off-center on the rotation axis (translateZ) so
+     the disc has real depth instead of both faces being perfectly coplanar —
+     .disc-edge (below) fills the gap between them as the rim/spine. */
   .disc-face{
     position:absolute;inset:0;border-radius:50%;
     transition:opacity .12s linear;
+    transform:translateZ(4px);
   }
-  .disc-face-back{transform:rotateY(180deg);}
+  .disc-face-back{transform:rotateY(180deg) translateZ(4px);}
   .disc-3d:not(.showing-back) .disc-face-back{opacity:0;}
   .disc-3d.showing-back .disc-face-front{opacity:0;}
+
+  /* the disc's edge/spine — sits between the two faces (z:0, they're pushed
+     to +-4px) and is very slightly larger, so it peeks out as a thin
+     light-catching rim at the silhouette and while tilted/turning, giving
+     the disc real thickness instead of reading as a flat cutout. */
+  .disc-edge{
+    position:absolute;inset:-1.6%;border-radius:50%;
+    background:conic-gradient(from -40deg,
+      #f6f6f4 0deg, #cfcfca 20deg, #8f8f89 45deg, #cfcfca 70deg, #f6f6f4 95deg,
+      #dcdcd8 135deg, #9a9a95 180deg, #dcdcd8 225deg,
+      #f6f6f4 265deg, #cfcfca 290deg, #8f8f89 315deg, #cfcfca 340deg, #f6f6f4 360deg);
+    pointer-events:none;
+  }
 
   /* outer unrecorded rim: 96.7%-100% of 120mm disc (present on both faces) */
   .disc-rim{
@@ -121,12 +138,14 @@
     font-size:clamp(2.4rem,8vh,4.6rem);
     color:var(--muted);
   }
-  /* fine concentric texture etched over the photo, so a printed cover still reads as a physical disc */
+  /* soft matte/frosted grain over the photo — just enough that a printed
+     cover still reads as a physical disc surface, not etched concentric
+     grooves (that read as too harsh over a face/photo) */
   .disc-texture{
     position:absolute;inset:0;border-radius:50%;
-    background:repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,0.16) 0 1px, rgba(255,255,255,0.14) 1px 2px, transparent 2px 6px);
-    mix-blend-mode:overlay;
-    opacity:0.8;
+    background:repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,0.045) 0 1px, rgba(255,255,255,0.05) 1px 2px, transparent 2px 9px);
+    mix-blend-mode:soft-light;
+    opacity:0.5;
     pointer-events:none;
   }
   /* raking studio-light glare, like a photographed disc under a spotlight —
@@ -702,6 +721,7 @@
       wrap.innerHTML =
         '<div class="disc-3d" data-id="'+d.id+'">' +
           '<div class="disc-hl"></div>' +
+          '<div class="disc-edge"></div>' +
           '<div class="disc-face disc-face-front">' +
             '<div class="disc-rim"></div>' +
             coverInner +
