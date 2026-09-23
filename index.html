@@ -474,8 +474,8 @@
         <label>密碼 * <span class="submit-hint">(修改資料用，請記得，勿使用常用密碼)</span><input id="nPin" type="password" required maxlength="20"></label>
         <label>Email <span class="submit-hint">(選填，會公開顯示)</span><input id="nEmail" type="email"></label>
       </div>
-      <label>LinkedIn 連結<input id="nLinkedin" type="url" placeholder="https://www.linkedin.com/in/..."></label>
-      <label>作品集連結<input id="nPortfolio" type="url" placeholder="https://..."></label>
+      <label>LinkedIn 連結<input id="nLinkedin" type="text" placeholder="www.linkedin.com/in/..."></label>
+      <label>作品集連結<input id="nPortfolio" type="text" placeholder="你的作品集網址"></label>
       <label>一句話介紹自己<textarea id="nBio" maxlength="120"></textarea></label>
       <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開，例如：UI設計、Figma、品牌識別)</span><input id="nTags" type="text"></label>
       <label>照片 <span class="submit-hint">(檔案大小上限 5MB)</span><input id="nPhoto" type="file" accept="image/*"></label>
@@ -502,8 +502,8 @@
     <form class="submit-form" id="editForm" hidden>
       <label>姓名 *<input id="eName" type="text" required maxlength="30"></label>
       <label>Email <span class="submit-hint">(選填，會公開顯示)</span><input id="eEmail" type="email"></label>
-      <label>LinkedIn 連結<input id="eLinkedin" type="url"></label>
-      <label>作品集連結<input id="ePortfolio" type="url"></label>
+      <label>LinkedIn 連結<input id="eLinkedin" type="text"></label>
+      <label>作品集連結<input id="ePortfolio" type="text"></label>
       <label>一句話介紹自己<textarea id="eBio" maxlength="120"></textarea></label>
       <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開)</span><input id="eTags" type="text"></label>
       <label>換照片 <span class="submit-hint">(不選就保留原本的照片；檔案大小上限 5MB)</span><input id="ePhoto" type="file" accept="image/*"></label>
@@ -1173,6 +1173,19 @@
     function collectTags(str){
       return (str||'').split(/[,，、]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0,5);
     }
+    // students paste LinkedIn/作品集連結 in all kinds of shapes — some without
+    // "https://", some with full-width or stray punctuation. Rather than
+    // relying on everyone remembering to type it a specific way, quietly fix
+    // up what we can before it's saved, instead of rejecting it.
+    function normalizeUrl(str){
+      var v = (str||'').trim();
+      if(!v) return '';
+      v = v.replace(/^[「『【\[]+|[」』】\]]+$/g, ''); // stray brackets some paste in by habit
+      if(!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(v)){
+        v = 'https://' + v.replace(/^\/+/, '');
+      }
+      return v;
+    }
     var MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
     function uploadPhoto(file){
       if(!file) return Promise.resolve('');
@@ -1304,8 +1317,8 @@
       var email = document.getElementById('nEmail').value.trim().toLowerCase();
       var pin = document.getElementById('nPin').value.trim();
       if(!name || !pin){ setMsg(msg, '姓名、密碼為必填。', 'err'); return; }
-      var linkedin = document.getElementById('nLinkedin').value.trim();
-      var portfolio = document.getElementById('nPortfolio').value.trim();
+      var linkedin = normalizeUrl(document.getElementById('nLinkedin').value);
+      var portfolio = normalizeUrl(document.getElementById('nPortfolio').value);
       var bio = document.getElementById('nBio').value.trim();
       var tags = collectTags(document.getElementById('nTags').value);
       var file = document.getElementById('nPhoto').files[0];
@@ -1373,8 +1386,8 @@
       var btn = editForm.querySelector('button[type=submit]');
       var name = document.getElementById('eName').value.trim();
       var email = document.getElementById('eEmail').value.trim().toLowerCase();
-      var linkedin = document.getElementById('eLinkedin').value.trim();
-      var portfolio = document.getElementById('ePortfolio').value.trim();
+      var linkedin = normalizeUrl(document.getElementById('eLinkedin').value);
+      var portfolio = normalizeUrl(document.getElementById('ePortfolio').value);
       var bio = document.getElementById('eBio').value.trim();
       var tags = collectTags(document.getElementById('eTags').value);
       var file = document.getElementById('ePhoto').files[0];
