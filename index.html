@@ -348,6 +348,7 @@
   .submit-form input[type=file]{padding:8px 0;background:none;border:none;font-size:0.8rem;}
   .photo-adjust-wrap{display:flex;flex-direction:column;gap:8px;align-items:flex-start;margin-top:-6px;}
   .photo-adjust{
+    position:relative;
     width:140px;height:140px;border-radius:50%;
     background-color:var(--surface);border:1px solid var(--line);
     background-size:cover;background-position:50% 50%;background-repeat:no-repeat;
@@ -355,6 +356,17 @@
   }
   .photo-adjust:active{cursor:grabbing;}
   .photo-adjust[hidden]{display:none;}
+  /* shows where the CD's real spindle hole (12.5% of its diameter, same as
+     .disc-hole) will sit, so a face doesn't end up centered right on top of it */
+  .photo-adjust-hole{
+    position:absolute;left:50%;top:50%;
+    width:12.5%;height:12.5%;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    background:rgba(255,255,255,0.6);
+    border:1px solid rgba(10,10,10,0.5);
+    pointer-events:none;
+  }
   .photo-adjust-hint{font-size:0.68rem;color:var(--muted);}
   .photo-adjust-hint[hidden]{display:none;}
   .submit-row{display:flex;gap:12px;}
@@ -447,8 +459,8 @@
     <form class="submit-form" id="newForm">
       <label>姓名 *<input id="nName" type="text" required maxlength="30"></label>
       <div class="submit-row">
-        <label>編輯密碼 * <span class="submit-hint">(之後修改資料要用，請記得)</span><input id="nPin" type="password" required maxlength="20"></label>
-        <label>Email <span class="submit-hint">(選填，有填的話會公開顯示在你的個人頁面上)</span><input id="nEmail" type="email"></label>
+        <label>密碼 * <span class="submit-hint">(之後修改資料要用，請記得，勿使用常用密碼)</span><input id="nPin" type="password" required maxlength="20"></label>
+        <label>Email <span class="submit-hint">(選填，會公開顯示)</span><input id="nEmail" type="email"></label>
       </div>
       <label>LinkedIn 連結<input id="nLinkedin" type="url" placeholder="https://www.linkedin.com/in/..."></label>
       <label>作品集連結<input id="nPortfolio" type="url" placeholder="https://..."></label>
@@ -456,8 +468,8 @@
       <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開，例如：UI設計、Figma、品牌識別)</span><input id="nTags" type="text"></label>
       <label>照片 <span class="submit-hint">(檔案大小上限 5MB)</span><input id="nPhoto" type="file" accept="image/*"></label>
       <div class="photo-adjust-wrap">
-        <div class="photo-adjust" id="nPhotoAdjust" hidden></div>
-        <span class="photo-adjust-hint" id="nPhotoAdjustHint" hidden>CD 會把照片裁成圓形，在上面拖曳可以調整位置</span>
+        <div class="photo-adjust" id="nPhotoAdjust" hidden><div class="photo-adjust-hole"></div></div>
+        <span class="photo-adjust-hint" id="nPhotoAdjustHint" hidden>CD 會把照片裁成圓形，中間淺色小圓圈是 CD 中心孔的位置，在上面拖曳可以調整照片位置</span>
       </div>
       <div class="submit-actions">
         <button type="submit">送出</button>
@@ -466,9 +478,9 @@
     </form>
 
     <form class="submit-form" id="lookupForm" hidden>
-      <p class="submit-hint" style="margin-top:0;">輸入當初提交時填的姓名與編輯密碼，查詢你的資料。</p>
+      <p class="submit-hint" style="margin-top:0;">輸入當初提交時填的姓名與密碼，查詢你的資料。</p>
       <label>姓名<input id="lookupName" type="text" required maxlength="30"></label>
-      <label>編輯密碼<input id="lookupPin" type="password" required></label>
+      <label>密碼<input id="lookupPin" type="password" required></label>
       <div class="submit-actions">
         <button type="submit">查詢</button>
       </div>
@@ -477,15 +489,15 @@
 
     <form class="submit-form" id="editForm" hidden>
       <label>姓名 *<input id="eName" type="text" required maxlength="30"></label>
-      <label>Email <span class="submit-hint">(選填，有填的話會公開顯示在你的個人頁面上)</span><input id="eEmail" type="email"></label>
+      <label>Email <span class="submit-hint">(選填，會公開顯示)</span><input id="eEmail" type="email"></label>
       <label>LinkedIn 連結<input id="eLinkedin" type="url"></label>
       <label>作品集連結<input id="ePortfolio" type="url"></label>
       <label>一句話介紹自己<textarea id="eBio" maxlength="120"></textarea></label>
       <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開)</span><input id="eTags" type="text"></label>
       <label>換照片 <span class="submit-hint">(不選就保留原本的照片；檔案大小上限 5MB)</span><input id="ePhoto" type="file" accept="image/*"></label>
       <div class="photo-adjust-wrap">
-        <div class="photo-adjust" id="ePhotoAdjust" hidden></div>
-        <span class="photo-adjust-hint" id="ePhotoAdjustHint" hidden>CD 會把照片裁成圓形，在上面拖曳可以調整位置</span>
+        <div class="photo-adjust" id="ePhotoAdjust" hidden><div class="photo-adjust-hole"></div></div>
+        <span class="photo-adjust-hint" id="ePhotoAdjustHint" hidden>CD 會把照片裁成圓形，中間淺色小圓圈是 CD 中心孔的位置，在上面拖曳可以調整照片位置</span>
       </div>
       <div class="submit-actions">
         <button type="submit">更新</button>
@@ -1714,7 +1726,7 @@
       var name = document.getElementById('nName').value.trim();
       var email = document.getElementById('nEmail').value.trim().toLowerCase();
       var pin = document.getElementById('nPin').value.trim();
-      if(!name || !pin){ setMsg(msg, '姓名、編輯密碼為必填。', 'err'); return; }
+      if(!name || !pin){ setMsg(msg, '姓名、密碼為必填。', 'err'); return; }
       var linkedin = document.getElementById('nLinkedin').value.trim();
       var portfolio = document.getElementById('nPortfolio').value.trim();
       var bio = document.getElementById('nBio').value.trim();
@@ -1759,7 +1771,7 @@
       sbClient.rpc('verify_student_login', {p_name:name, p_pin:pin}).then(function(res){
         if(res.error){ setMsg(msg, '查詢失敗：' + res.error.message, 'err'); return; }
         var rows = res.data || [];
-        if(!rows.length){ setMsg(msg, '查無資料，請確認姓名與編輯密碼是否正確。', 'err'); return; }
+        if(!rows.length){ setMsg(msg, '查無資料，請確認姓名與密碼是否正確。', 'err'); return; }
         var d = rows[0];
         editingId = d.id;
         document.getElementById('eName').value = d.name || '';
