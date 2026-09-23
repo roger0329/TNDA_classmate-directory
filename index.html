@@ -314,6 +314,8 @@
   .panel-tags .tag-chip{font-size:0.7rem;padding:5px 12px;}
   .panel-bio{font-size:0.92rem;line-height:1.6;color:var(--text);}
   .panel-bio[hidden]{display:none;}
+  .panel-email{font-family:"IBM Plex Mono",monospace;font-size:0.76rem;color:var(--muted);margin:-8px 0 0;}
+  .panel-email[hidden]{display:none;}
   .panel-ctas{display:flex;flex-direction:column;gap:10px;}
   .panel .cta{
     display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:0;
@@ -344,6 +346,17 @@
   .submit-form input:focus,.submit-form textarea:focus{border-color:var(--text);}
   .submit-form textarea{resize:vertical;min-height:64px;}
   .submit-form input[type=file]{padding:8px 0;background:none;border:none;font-size:0.8rem;}
+  .photo-adjust-wrap{display:flex;flex-direction:column;gap:8px;align-items:flex-start;margin-top:-6px;}
+  .photo-adjust{
+    width:140px;height:140px;border-radius:50%;
+    background-color:var(--surface);border:1px solid var(--line);
+    background-size:cover;background-position:50% 50%;background-repeat:no-repeat;
+    cursor:grab;touch-action:none;
+  }
+  .photo-adjust:active{cursor:grabbing;}
+  .photo-adjust[hidden]{display:none;}
+  .photo-adjust-hint{font-size:0.68rem;color:var(--muted);}
+  .photo-adjust-hint[hidden]{display:none;}
   .submit-row{display:flex;gap:12px;}
   .submit-row label{flex:1;}
   .submit-hint{font-size:0.68rem;color:var(--muted);margin-top:-8px;}
@@ -418,6 +431,7 @@
   <h2 id="pName"></h2>
   <div class="panel-tags" id="pTags"></div>
   <p class="panel-bio" id="pBio"></p>
+  <p class="panel-email mono" id="pEmail"></p>
   <div class="panel-ctas" id="pCtas"></div>
 </aside>
 
@@ -433,14 +447,18 @@
     <form class="submit-form" id="newForm">
       <label>姓名 *<input id="nName" type="text" required maxlength="30"></label>
       <div class="submit-row">
-        <label>Email * <span class="submit-hint">(用來之後修改資料，不會公開顯示)</span><input id="nEmail" type="email" required></label>
-        <label>編輯密碼 * <span class="submit-hint">(之後修改資料要用)</span><input id="nPin" type="password" required maxlength="20"></label>
+        <label>編輯密碼 * <span class="submit-hint">(之後修改資料要用，請記得)</span><input id="nPin" type="password" required maxlength="20"></label>
+        <label>Email <span class="submit-hint">(選填，有填的話會公開顯示在你的個人頁面上)</span><input id="nEmail" type="email"></label>
       </div>
       <label>LinkedIn 連結<input id="nLinkedin" type="url" placeholder="https://www.linkedin.com/in/..."></label>
       <label>作品集連結<input id="nPortfolio" type="url" placeholder="https://..."></label>
       <label>一句話介紹自己<textarea id="nBio" maxlength="120"></textarea></label>
       <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開，例如：UI設計、Figma、品牌識別)</span><input id="nTags" type="text"></label>
-      <label>照片<input id="nPhoto" type="file" accept="image/*"></label>
+      <label>照片 <span class="submit-hint">(檔案大小上限 5MB)</span><input id="nPhoto" type="file" accept="image/*"></label>
+      <div class="photo-adjust-wrap">
+        <div class="photo-adjust" id="nPhotoAdjust" hidden></div>
+        <span class="photo-adjust-hint" id="nPhotoAdjustHint" hidden>CD 會把照片裁成圓形，在上面拖曳可以調整位置</span>
+      </div>
       <div class="submit-actions">
         <button type="submit">送出</button>
       </div>
@@ -448,8 +466,8 @@
     </form>
 
     <form class="submit-form" id="lookupForm" hidden>
-      <p class="submit-hint" style="margin-top:0;">輸入當初提交時填的 Email 與編輯密碼，查詢你的資料。</p>
-      <label>Email<input id="lookupEmail" type="email" required></label>
+      <p class="submit-hint" style="margin-top:0;">輸入當初提交時填的姓名與編輯密碼，查詢你的資料。</p>
+      <label>姓名<input id="lookupName" type="text" required maxlength="30"></label>
       <label>編輯密碼<input id="lookupPin" type="password" required></label>
       <div class="submit-actions">
         <button type="submit">查詢</button>
@@ -459,11 +477,16 @@
 
     <form class="submit-form" id="editForm" hidden>
       <label>姓名 *<input id="eName" type="text" required maxlength="30"></label>
+      <label>Email <span class="submit-hint">(選填，有填的話會公開顯示在你的個人頁面上)</span><input id="eEmail" type="email"></label>
       <label>LinkedIn 連結<input id="eLinkedin" type="url"></label>
       <label>作品集連結<input id="ePortfolio" type="url"></label>
       <label>一句話介紹自己<textarea id="eBio" maxlength="120"></textarea></label>
       <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開)</span><input id="eTags" type="text"></label>
-      <label>換照片 <span class="submit-hint">(不選就保留原本的照片)</span><input id="ePhoto" type="file" accept="image/*"></label>
+      <label>換照片 <span class="submit-hint">(不選就保留原本的照片；檔案大小上限 5MB)</span><input id="ePhoto" type="file" accept="image/*"></label>
+      <div class="photo-adjust-wrap">
+        <div class="photo-adjust" id="ePhotoAdjust" hidden></div>
+        <span class="photo-adjust-hint" id="ePhotoAdjustHint" hidden>CD 會把照片裁成圓形，在上面拖曳可以調整位置</span>
+      </div>
       <div class="submit-actions">
         <button type="submit">更新</button>
         <button type="button" class="text-btn" id="editCancel">取消，重新查詢</button>
@@ -1060,7 +1083,8 @@
   }
 
   // ---- read the public roster from Supabase (students_public view — never
-  // exposes email/edit_pin, see README's SQL setup) ----
+  // exposes edit_pin; email is included but only shown if the student chose
+  // to fill it in, see README's SQL setup) ----
   function loadFromSupabase(){
     if(!sbClient) return;
     sbClient.from('students_public').select('*').order('created_at', {ascending:true})
@@ -1076,7 +1100,9 @@
             tags: r.tags || [],
             bio: r.bio || '',
             linkedin: r.linkedin || '',
-            portfolio: r.portfolio || ''
+            portfolio: r.portfolio || '',
+            email: r.email || '',
+            photoPos: r.photo_pos || '50% 50%'
           };
         });
         renderRoster(shuffleRoster(roster));
@@ -1093,8 +1119,9 @@
     data.forEach(function(d, i){
       var num = ('0'+(i+1)).slice(-2);
 
+      var photoPos = d.photoPos || '50% 50%';
       var coverInner = d.image
-        ? '<div class="disc-cover" style="background-image:url(\''+d.image+'\')"></div>'
+        ? '<div class="disc-cover" style="background-image:url(\''+d.image+'\');background-position:'+photoPos+'"></div>'
         : '<div class="disc-cover placeholder"><span class="ph-initial">'+d.initial+'</span></div>';
 
       var tagsHtml = d.tags.slice(0,5).map(function(t){ return '<span class="tag-chip">'+t+'</span>'; }).join('');
@@ -1126,7 +1153,7 @@
       stageInner.appendChild(wrap);
 
       var avatarInner = d.image
-        ? '<span class="iavatar" style="background-image:url(\''+d.image+'\')"></span>'
+        ? '<span class="iavatar" style="background-image:url(\''+d.image+'\');background-position:'+photoPos+'"></span>'
         : '<span class="iavatar"><span class="iav-init">'+d.initial+'</span></span>';
 
       var item = document.createElement('a');
@@ -1481,6 +1508,8 @@
     }).join('');
     document.getElementById('pBio').textContent = d.bio || '';
     document.getElementById('pBio').hidden = !d.bio;
+    document.getElementById('pEmail').textContent = d.email || '';
+    document.getElementById('pEmail').hidden = !d.email;
     var ctas = '';
     if(d.linkedin){
       ctas += '<a class="cta" href="'+d.linkedin+'" target="_blank" rel="noopener">看 LinkedIn 檔案 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
@@ -1573,6 +1602,7 @@
     function collectTags(str){
       return (str||'').split(/[,，、]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0,5);
     }
+    var MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
     function uploadPhoto(file){
       if(!file) return Promise.resolve('');
       var ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
@@ -1584,6 +1614,84 @@
           return pub.data.publicUrl;
         });
     }
+
+    // ---- circular photo-position adjuster: shows the chosen photo in a round
+    // preview and lets the student drag it to pick which part of the photo
+    // ends up centered once the CD crops it to a circle. state.x/state.y are
+    // a background-position percentage pair, submitted alongside the photo. ----
+    function initPhotoAdjust(el, hintEl, fileInput, state){
+      function applyPos(){ el.style.backgroundPosition = state.x + '% ' + state.y + '%'; }
+      function showWithSrc(src){
+        el.style.backgroundImage = "url('" + src + "')";
+        el.hidden = false;
+        if(hintEl) hintEl.hidden = false;
+      }
+      fileInput.addEventListener('change', function(){
+        var file = fileInput.files[0];
+        if(!file) return;
+        if(file.size > MAX_PHOTO_BYTES){
+          alert('照片檔案太大了(上限 5MB)，請選一張小一點的照片，或先壓縮再上傳。');
+          fileInput.value = '';
+          el.hidden = true;
+          if(hintEl) hintEl.hidden = true;
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function(ev){
+          state.x = 50; state.y = 50;
+          applyPos();
+          showWithSrc(ev.target.result);
+        };
+        reader.readAsDataURL(file);
+      });
+
+      var dragging = false, startX = 0, startY = 0, startPosX = 50, startPosY = 50;
+      el.addEventListener('pointerdown', function(ev){
+        dragging = true;
+        startX = ev.clientX; startY = ev.clientY;
+        startPosX = state.x; startPosY = state.y;
+        el.setPointerCapture(ev.pointerId);
+      });
+      el.addEventListener('pointermove', function(ev){
+        if(!dragging) return;
+        var rect = el.getBoundingClientRect();
+        var dx = ev.clientX - startX, dy = ev.clientY - startY;
+        state.x = Math.max(0, Math.min(100, startPosX - (dx / rect.width) * 100));
+        state.y = Math.max(0, Math.min(100, startPosY - (dy / rect.height) * 100));
+        applyPos();
+      });
+      function endDrag(ev){ dragging = false; try{ el.releasePointerCapture(ev.pointerId); }catch(e){} }
+      el.addEventListener('pointerup', endDrag);
+      el.addEventListener('pointercancel', endDrag);
+
+      return {
+        showExisting: function(src, posStr){
+          if(!src) return;
+          var parts = (posStr || '50% 50%').replace(/%/g,'').trim().split(/\s+/).map(Number);
+          state.x = isFinite(parts[0]) ? parts[0] : 50;
+          state.y = isFinite(parts[1]) ? parts[1] : 50;
+          applyPos();
+          showWithSrc(src);
+        },
+        reset: function(){
+          state.x = 50; state.y = 50; applyPos();
+          el.style.backgroundImage = '';
+          el.hidden = true;
+          if(hintEl) hintEl.hidden = true;
+        }
+      };
+    }
+
+    var nPhotoPos = {x:50, y:50};
+    var nPhotoAdjust = initPhotoAdjust(
+      document.getElementById('nPhotoAdjust'), document.getElementById('nPhotoAdjustHint'),
+      document.getElementById('nPhoto'), nPhotoPos
+    );
+    var ePhotoPos = {x:50, y:50};
+    var ePhotoAdjust = initPhotoAdjust(
+      document.getElementById('ePhotoAdjust'), document.getElementById('ePhotoAdjustHint'),
+      document.getElementById('ePhoto'), ePhotoPos
+    );
 
     submitBtn.addEventListener('click', function(){ submitOverlay.classList.add('open'); });
     document.getElementById('closeSubmit').addEventListener('click', function(){ submitOverlay.classList.remove('open'); });
@@ -1606,7 +1714,7 @@
       var name = document.getElementById('nName').value.trim();
       var email = document.getElementById('nEmail').value.trim().toLowerCase();
       var pin = document.getElementById('nPin').value.trim();
-      if(!name || !email || !pin){ setMsg(msg, '姓名、Email、編輯密碼為必填。', 'err'); return; }
+      if(!name || !pin){ setMsg(msg, '姓名、編輯密碼為必填。', 'err'); return; }
       var linkedin = document.getElementById('nLinkedin').value.trim();
       var portfolio = document.getElementById('nPortfolio').value.trim();
       var bio = document.getElementById('nBio').value.trim();
@@ -1617,15 +1725,16 @@
       setMsg(msg, '送出中...', '');
       uploadPhoto(file).then(function(photoUrl){
         return sbClient.from('students').insert({
-          name:name, email:email, edit_pin:pin,
+          name:name, email:(email || null), edit_pin:pin,
           tags:tags, bio:bio, linkedin:linkedin, portfolio:portfolio,
-          photo_url:photoUrl
+          photo_url:photoUrl,
+          photo_pos: photoUrl ? (nPhotoPos.x + '% ' + nPhotoPos.y + '%') : '50% 50%'
         });
       }).then(function(res){
         btn.disabled = false;
         if(res.error){
           if(/duplicate|unique/i.test(res.error.message || '')){
-            setMsg(msg, '這個 Email 已經提交過資料了，請改用上方「修改已提交的資料」。', 'err');
+            setMsg(msg, '這個 Email 已經被別人用過了，換一個試試，或留空不填也可以。', 'err');
           } else {
             setMsg(msg, '送出失敗：' + res.error.message, 'err');
           }
@@ -1633,6 +1742,7 @@
         }
         setMsg(msg, '已加入成功！關閉這個視窗就會看到你的 CD 出現在頁面上。', 'ok');
         newForm.reset();
+        nPhotoAdjust.reset();
         loadFromSupabase();
       }).catch(function(err){
         btn.disabled = false;
@@ -1643,20 +1753,23 @@
     lookupForm.addEventListener('submit', function(ev){
       ev.preventDefault();
       var msg = document.getElementById('lookupMsg');
-      var email = document.getElementById('lookupEmail').value.trim().toLowerCase();
+      var name = document.getElementById('lookupName').value.trim();
       var pin = document.getElementById('lookupPin').value.trim();
       setMsg(msg, '查詢中...', '');
-      sbClient.rpc('verify_student_login', {p_email:email, p_pin:pin}).then(function(res){
+      sbClient.rpc('verify_student_login', {p_name:name, p_pin:pin}).then(function(res){
         if(res.error){ setMsg(msg, '查詢失敗：' + res.error.message, 'err'); return; }
         var rows = res.data || [];
-        if(!rows.length){ setMsg(msg, '查無資料，請確認 Email 與編輯密碼是否正確。', 'err'); return; }
+        if(!rows.length){ setMsg(msg, '查無資料，請確認姓名與編輯密碼是否正確。', 'err'); return; }
         var d = rows[0];
         editingId = d.id;
         document.getElementById('eName').value = d.name || '';
+        document.getElementById('eEmail').value = d.email || '';
         document.getElementById('eLinkedin').value = d.linkedin || '';
         document.getElementById('ePortfolio').value = d.portfolio || '';
         document.getElementById('eBio').value = d.bio || '';
         document.getElementById('eTags').value = (d.tags || []).join('、');
+        document.getElementById('ePhoto').value = '';
+        ePhotoAdjust.showExisting(d.photo_url, d.photo_pos);
         lookupForm.hidden = true;
         editForm.hidden = false;
         setMsg(msg, '', '');
@@ -1669,6 +1782,7 @@
       var msg = document.getElementById('editMsg');
       var btn = editForm.querySelector('button[type=submit]');
       var name = document.getElementById('eName').value.trim();
+      var email = document.getElementById('eEmail').value.trim().toLowerCase();
       var linkedin = document.getElementById('eLinkedin').value.trim();
       var portfolio = document.getElementById('ePortfolio').value.trim();
       var bio = document.getElementById('eBio').value.trim();
@@ -1678,12 +1792,22 @@
       btn.disabled = true;
       setMsg(msg, '更新中...', '');
       uploadPhoto(file).then(function(photoUrl){
-        var patch = {name:name, linkedin:linkedin, portfolio:portfolio, bio:bio, tags:tags};
-        if(photoUrl) patch.photo_url = photoUrl;
+        var patch = {name:name, email:(email || null), linkedin:linkedin, portfolio:portfolio, bio:bio, tags:tags};
+        // send the adjusted position whenever a photo is involved — either a
+        // freshly uploaded one, or the existing one the student just dragged
+        if(photoUrl){ patch.photo_url = photoUrl; }
+        patch.photo_pos = ePhotoPos.x + '% ' + ePhotoPos.y + '%';
         return sbClient.from('students').update(patch).eq('id', editingId);
       }).then(function(res){
         btn.disabled = false;
-        if(res.error){ setMsg(msg, '更新失敗：' + res.error.message, 'err'); return; }
+        if(res.error){
+          if(/duplicate|unique/i.test(res.error.message || '')){
+            setMsg(msg, '這個 Email 已經被別人用過了，換一個試試，或留空不填也可以。', 'err');
+          } else {
+            setMsg(msg, '更新失敗：' + res.error.message, 'err');
+          }
+          return;
+        }
         setMsg(msg, '已更新！', 'ok');
         loadFromSupabase();
       }).catch(function(err){
@@ -1696,6 +1820,7 @@
       editForm.hidden = true;
       lookupForm.hidden = false;
       editingId = null;
+      ePhotoAdjust.reset();
     });
   })();
 
