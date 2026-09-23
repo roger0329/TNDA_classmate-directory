@@ -1,0 +1,1718 @@
+<title>同學錄</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --surface:#f0f0ee;
+    --surface-2:#e2e2de;
+    --text:#0a0a0a;
+    --muted:#5c5c58;
+    --line:rgba(10,10,10,0.2);
+    --header-h:64px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",-apple-system,BlinkMacSystemFont,sans-serif;
+    overflow:hidden;
+  }
+  h1,h2,h3{font-family:"Noto Sans TC","PingFang TC",sans-serif;font-weight:100;margin:0;text-wrap:balance;letter-spacing:0.08em;}
+  a{color:inherit;text-decoration:none;}
+  button{font-family:inherit;background:none;border:none;color:inherit;cursor:pointer;}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;}
+
+  /* ---------------- top bar ---------------- */
+  .topbar{
+    position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;z-index:50;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    height:var(--header-h);padding-inline:22px;
+    border-bottom:1px solid var(--line);
+    background:var(--bg);
+  }
+  .wordmark{font-family:"Noto Sans TC",sans-serif;font-weight:100;font-size:1.15rem;letter-spacing:0.14em;}
+  .nav-link{font-size:0.76rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--text);padding:6px 2px;position:relative;border:1px solid var(--line);padding:6px 14px;}
+  .nav-link:hover{background:var(--text);color:var(--bg);}
+
+  /* ---------------- stage: horizontal draggable row ---------------- */
+  .stage{
+    position:fixed;
+    top:var(--header-h);left:0;right:0;bottom:0;
+    display:flex;align-items:center;
+    perspective:1400px;
+  }
+  .row-viewport{
+    width:100%;height:100%;
+    display:flex;align-items:center;
+    overflow-x:auto;overflow-y:hidden;
+    scrollbar-width:none;-ms-overflow-style:none;
+    cursor:grab;
+    user-select:none;
+  }
+  .row-viewport::-webkit-scrollbar{display:none;}
+  .row-viewport.dragging{cursor:grabbing;scroll-behavior:auto;}
+  .stage-inner{
+    display:flex;align-items:center;
+    gap:clamp(28px,5vw,64px);
+    padding-inline:14vw;
+    width:max-content;
+  }
+  @media (max-width:640px){
+    .stage-inner{gap:24px;padding-inline:30vw;}
+  }
+
+  /* ---------------- disc column ---------------- */
+  .disc-wrap{
+    display:flex;flex-direction:column;align-items:center;gap:14px;
+    flex:0 0 auto;
+  }
+
+  /* proportions follow a real 120mm CD: 15mm spindle hole, ~46mm hub/label edge, ~116mm data edge */
+  .disc-3d{
+    --size:clamp(240px, 46vh, 520px);
+    width:var(--size);height:var(--size);
+    border-radius:50%;
+    position:relative;
+    transform-style:preserve-3d;
+    -webkit-transform-style:preserve-3d;
+    cursor:grab;
+    touch-action:none;
+    filter:drop-shadow(0 6px 10px rgba(10,10,10,0.28));
+    transition:filter .3s ease;
+  }
+  .disc-3d:active{cursor:grabbing;}
+  .disc-wrap:hover .disc-3d{filter:drop-shadow(0 9px 14px rgba(10,10,10,0.32));}
+
+  /* two physical faces of the disc, back-to-back — like a real CD: label side (photo) vs data side (grooves) */
+  /* which face paints is driven entirely by JS (see updateFace) rather than
+     backface-visibility, which didn't cull reliably mid-rotation here */
+  .disc-face{
+    position:absolute;inset:0;border-radius:50%;
+    transition:opacity .12s linear;
+  }
+  .disc-face-back{transform:rotateY(180deg);}
+  .disc-3d:not(.showing-back) .disc-face-back{opacity:0;}
+  .disc-3d.showing-back .disc-face-front{opacity:0;}
+
+  /* outer unrecorded rim: 96.7%-100% of 120mm disc (present on both faces) */
+  .disc-rim{
+    position:absolute;inset:0;border-radius:50%;
+    background:radial-gradient(circle, transparent 0 96.5%, rgba(10,10,10,0.55) 96.7% 98.5%, rgba(10,10,10,0.18) 98.6% 100%);
+  }
+  /* front / label side: the student's own photo, filling the printable area (~38.3%-96.7%) */
+  .disc-cover{
+    position:absolute;inset:0;border-radius:50%;
+    background-size:cover;background-position:center;
+    border:1px solid var(--line);
+  }
+  .disc-cover.placeholder{
+    background:var(--surface);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .disc-cover .ph-initial{
+    font-family:"Noto Sans TC",sans-serif;font-weight:100;
+    font-size:clamp(2.4rem,8vh,4.6rem);
+    color:var(--muted);
+  }
+  /* fine concentric texture etched over the photo, so a printed cover still reads as a physical disc */
+  .disc-texture{
+    position:absolute;inset:0;border-radius:50%;
+    background:repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,0.16) 0 1px, rgba(255,255,255,0.14) 1px 2px, transparent 2px 6px);
+    mix-blend-mode:overlay;
+    opacity:0.8;
+    pointer-events:none;
+  }
+  /* raking studio-light glare, like a photographed disc under a spotlight —
+     position shifts as the disc turns, see updateFace() in the script below */
+  .disc-sheen{
+    position:absolute;inset:0;border-radius:50%;
+    background:linear-gradient(115deg,
+      transparent 15%,
+      rgba(255,255,255,0.04) 30%,
+      rgba(255,255,255,0.38) 46%,
+      rgba(255,255,255,0.08) 58%,
+      transparent 78%);
+    background-size:230% 230%;
+    background-position:50% 50%;
+    mix-blend-mode:soft-light;
+    pointer-events:none;
+  }
+  /* darkened falloff toward the rim, like light rolling off a curved reflective surface */
+  .disc-vignette{
+    position:absolute;inset:0;border-radius:50%;
+    background:radial-gradient(circle, transparent 70%, rgba(0,0,0,0.14) 97%, rgba(0,0,0,0.22) 100%);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  /* back / data side: the original concentric-groove look */
+  .disc-groove{
+    position:absolute;inset:0;border-radius:50%;
+    background:
+      repeating-radial-gradient(circle at 50% 50%, rgba(10,10,10,0.16) 0 1px, transparent 1px 6px),
+      radial-gradient(circle at 36% 30%, #ffffff, var(--surface) 45%, var(--surface-2) 72%);
+    border:1px solid var(--line);
+  }
+  /* spindle hole: 15mm of 120mm disc = 12.5% of overall diameter (one per face, punched through) */
+  .disc-hole{
+    position:absolute;left:50%;top:50%;
+    width:12.5%;height:12.5%;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    background:var(--bg);
+    border:1px solid rgba(10,10,10,0.55);
+    pointer-events:none;
+  }
+  .disc-name{
+    font-size:0.92rem;color:var(--text);text-align:center;
+    display:flex;flex-direction:column;align-items:center;gap:18px;
+    margin-top:22px;
+    pointer-events:none;
+  }
+  .disc-name .nm{font-family:"Noto Sans TC",sans-serif;font-weight:300;font-size:1.2rem;letter-spacing:0.1em;}
+  .disc-tags{
+    display:flex;flex-wrap:wrap;justify-content:center;gap:10px 14px;
+    max-width:260px;
+  }
+  .tag-chip{
+    font-family:"IBM Plex Mono",monospace;font-size:0.64rem;letter-spacing:0.05em;
+    padding:5px 12px;border:1px solid var(--line);color:var(--muted);
+    white-space:nowrap;
+  }
+  .disc-tags{pointer-events:auto;}
+  .disc-tags .tag-chip{cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease;}
+  .disc-tags .tag-chip:hover{border-color:var(--text);color:var(--text);}
+  .disc-tags .tag-chip.chip-active{background:var(--text);color:var(--bg);border-color:var(--text);}
+
+  .disc-wrap{transition:opacity .3s ease, transform .3s cubic-bezier(.2,.8,.25,1);}
+  .disc-wrap.filtered-out{opacity:0;transform:scale(0.8);pointer-events:none;}
+  /* once the fade above finishes, actually drop it out of the row (see applyFilter)
+     so CDs that don't match don't leave gaps you have to scroll through — no
+     compensating slide animation, the rest just settle into their new spot */
+  .disc-wrap.collapsed{display:none;}
+  .disc-wrap.selected{transform:scale(1.08);}
+
+  .filter-tags{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:44vw;}
+  .filter-chip{
+    display:inline-flex;align-items:center;gap:6px;
+    font-family:"IBM Plex Mono",monospace;font-size:0.66rem;letter-spacing:0.03em;
+    padding:5px 10px;border:1px solid var(--text);background:var(--text);color:var(--bg);
+    cursor:pointer;white-space:nowrap;
+  }
+  .filter-chip:hover{opacity:0.75;}
+  .filter-clear{font-size:0.7rem;letter-spacing:0.06em;color:var(--muted);white-space:nowrap;cursor:pointer;}
+  .filter-clear:hover{color:var(--text);}
+  @media (max-width:760px){ .filter-tags{max-width:100%;} }
+
+  .filter-input-wrap{display:flex;align-items:stretch;}
+  .filter-input{
+    font-family:"IBM Plex Mono",monospace;font-size:0.7rem;
+    background:var(--surface);border:1px solid var(--line);border-right:none;color:var(--text);
+    padding:7px 10px;width:150px;outline:none;
+  }
+  .filter-input:focus{border-color:var(--text);}
+  .filter-input::placeholder{color:var(--muted);}
+  .filter-input-add{
+    font-family:"IBM Plex Mono",monospace;font-size:0.8rem;
+    border:1px solid var(--line);background:var(--surface);color:var(--muted);
+    padding:0 12px;cursor:pointer;
+  }
+  .filter-input-add:hover{background:var(--text);color:var(--bg);border-color:var(--text);}
+  @media (max-width:900px){ .filter-input{width:90px;} }
+  @media (max-width:640px){ .filter-input-wrap{display:none;} }
+
+  /* a hollow ring (transparent center, transparent beyond) rather than a filled
+     glow — the inside is already empty before it even starts moving, so as it
+     expands outward and fades there's nothing left in the middle to read as
+     "shrinking back in" */
+  .disc-hl{
+    position:absolute;inset:-6px;border-radius:50%;
+    background:radial-gradient(circle, transparent 62%, rgba(10,10,10,0.08) 74%, transparent 88%);
+    opacity:0;
+    pointer-events:none;
+  }
+  .disc-wrap.pulse .disc-hl{animation:pulse 1.1s ease-out 1;}
+  @keyframes pulse{
+    0%{opacity:1;transform:scale(0.92);}
+    100%{opacity:0;transform:scale(1.18);}
+  }
+
+  /* ---------------- intro corner ---------------- */
+  .intro{
+    position:fixed;left:22px;top:calc(var(--header-h) + 18px);z-index:10;
+    max-width:280px;pointer-events:none;
+  }
+  .intro h1{font-size:clamp(1.2rem,2.4vw,1.6rem);line-height:1.35;}
+  .intro-en{
+    margin:10px 0 0;font-size:0.68rem;letter-spacing:0.08em;
+    color:var(--muted);text-transform:uppercase;
+  }
+  @media (max-width:760px){ .intro{display:none;} }
+
+  /* ---------------- index overlay ---------------- */
+  .index-overlay{
+    position:fixed;inset:0;z-index:80;background:var(--bg);
+    display:flex;flex-direction:column;padding:calc(var(--header-h) + 16px) 28px 28px;
+    opacity:0;visibility:hidden;transition:opacity .3s ease;
+  }
+  .index-overlay.open{opacity:1;visibility:visible;}
+  .index-close{position:absolute;top:calc(env(safe-area-inset-top,0px) + 18px);right:24px;font-size:0.74rem;letter-spacing:0.1em;color:var(--muted);}
+  .index-close:hover{color:var(--text);}
+  .index-search{max-width:360px;margin-bottom:24px;position:relative;}
+  .index-search input{width:100%;background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:0;padding:10px 16px 10px 36px;font-size:0.86rem;outline:none;}
+  .index-search input:focus{border-color:var(--text);}
+  .index-search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;stroke:var(--muted);}
+  .index-count{font-family:"IBM Plex Mono",monospace;font-size:0.72rem;color:var(--muted);margin:-8px 0 20px;}
+  .index-list{
+    flex:1;overflow-y:auto;
+    column-width:380px;column-gap:56px;
+  }
+  @media (max-width:800px){ .index-list{column-width:100%;} }
+  .index-item{
+    display:flex;align-items:center;gap:14px;padding:14px 4px;border-bottom:1px solid var(--line);
+    font-family:"Noto Sans TC",sans-serif;font-weight:200;letter-spacing:0.06em;font-size:clamp(1rem,2.4vw,1.4rem);
+    color:var(--muted);transition:color .2s ease, padding-left .2s ease;
+    break-inside:avoid;
+  }
+  .index-item .iavatar{
+    flex:0 0 auto;width:42px;height:42px;border-radius:50%;
+    background-size:cover;background-position:center;background-color:var(--surface);
+    border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    filter:grayscale(1);opacity:0.7;transition:filter .2s ease, opacity .2s ease;
+  }
+  .index-item .iavatar .iav-init{font-family:"Noto Sans TC",sans-serif;font-weight:200;font-size:0.95rem;color:var(--muted);}
+  .index-item .imeta{margin-left:auto;font-size:0.7rem;font-family:"IBM Plex Mono",monospace;color:var(--muted);text-transform:none;text-align:right;}
+  .index-item:hover{color:var(--text);padding-left:12px;}
+  .index-item:hover .iavatar{filter:grayscale(0);opacity:1;}
+  .index-item[hidden]{display:none;}
+  @media (max-width:640px){ .index-item .imeta{display:none;} }
+
+  /* ---------------- detail panel ---------------- */
+  .backdrop{
+    position:fixed;inset:0;z-index:59;background:rgba(0,0,0,0.55);
+    opacity:0;visibility:hidden;transition:opacity .3s ease;
+  }
+  .backdrop.open{opacity:1;visibility:visible;}
+  .panel{
+    position:fixed;top:0;right:0;bottom:0;z-index:60;
+    width:min(380px,92vw);
+    background:var(--surface);
+    border-left:1px solid var(--line);
+    padding:calc(env(safe-area-inset-top,0px) + 24px) 26px 26px;
+    transform:translateX(100%);
+    transition:transform .4s cubic-bezier(.2,.8,.25,1);
+    overflow-y:auto;
+    display:flex;flex-direction:column;gap:16px;
+  }
+  .panel.open{transform:translateX(0);}
+  .panel-close{align-self:flex-end;font-size:0.72rem;letter-spacing:0.1em;color:var(--muted);}
+  .panel-close:hover{color:var(--text);}
+  .panel .pnum{font-size:0.75rem;color:var(--muted);}
+  .panel h2{font-size:1.7rem;}
+  .panel-tags{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:-8px;}
+  .panel-tags .tag-chip{font-size:0.7rem;padding:5px 12px;}
+  .panel-bio{font-size:0.92rem;line-height:1.6;color:var(--text);}
+  .panel-bio[hidden]{display:none;}
+  .panel-ctas{display:flex;flex-direction:column;gap:10px;}
+  .panel .cta{
+    display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:0;
+    border:1px solid var(--text);color:var(--text);font-size:0.8rem;letter-spacing:0.04em;text-transform:uppercase;
+    align-self:flex-start;transition:background .2s ease, color .2s ease;
+  }
+  .panel .cta:hover{background:var(--text);color:var(--bg);}
+  .panel .cta svg{width:12px;height:12px;stroke:currentColor;fill:none;}
+
+  /* ---------------- submit / edit overlay ---------------- */
+  .submit-overlay{
+    position:fixed;inset:0;z-index:90;background:var(--bg);
+    display:flex;flex-direction:column;align-items:center;
+    padding:calc(var(--header-h) + 24px) 24px 48px;
+    opacity:0;visibility:hidden;transition:opacity .3s ease;
+    overflow-y:auto;
+  }
+  .submit-overlay.open{opacity:1;visibility:visible;}
+  .submit-inner{max-width:480px;width:100%;}
+  .submit-title{font-size:1.3rem;margin-bottom:22px;}
+  .submit-tabs{display:flex;gap:10px;margin-bottom:26px;}
+  .submit-tab{font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;padding:8px 16px;border:1px solid var(--line);color:var(--muted);}
+  .submit-tab.active{background:var(--text);color:var(--bg);border-color:var(--text);}
+  .submit-form{display:flex;flex-direction:column;gap:16px;}
+  .submit-form[hidden]{display:none;}
+  .submit-form label{display:flex;flex-direction:column;gap:6px;font-size:0.76rem;letter-spacing:0.04em;color:var(--muted);}
+  .submit-form input,.submit-form textarea{font-family:inherit;font-size:0.9rem;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:10px 12px;outline:none;}
+  .submit-form input:focus,.submit-form textarea:focus{border-color:var(--text);}
+  .submit-form textarea{resize:vertical;min-height:64px;}
+  .submit-form input[type=file]{padding:8px 0;background:none;border:none;font-size:0.8rem;}
+  .submit-row{display:flex;gap:12px;}
+  .submit-row label{flex:1;}
+  .submit-hint{font-size:0.68rem;color:var(--muted);margin-top:-8px;}
+  .submit-msg{font-size:0.78rem;min-height:1.2em;color:var(--muted);}
+  .submit-msg.err{color:#b00020;}
+  .submit-msg.ok{color:#0a7a2f;}
+  .submit-actions{display:flex;gap:14px;align-items:center;}
+  .submit-form button[type=submit]{
+    align-self:flex-start;padding:11px 22px;border:1px solid var(--text);
+    font-size:0.8rem;letter-spacing:0.04em;text-transform:uppercase;
+    transition:background .2s ease, color .2s ease;
+  }
+  .submit-form button[type=submit]:hover{background:var(--text);color:var(--bg);}
+  .submit-form button[type=submit]:disabled{opacity:0.4;cursor:default;}
+  .submit-form button.text-btn{font-size:0.74rem;letter-spacing:0.06em;color:var(--muted);text-decoration:underline;}
+  .submit-form button.text-btn:hover{color:var(--text);}
+
+  ::selection{background:var(--text);color:var(--bg);}
+
+  /* ---------------- credit ---------------- */
+  .credit{
+    position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);
+    z-index:5;text-align:center;
+    font-family:"IBM Plex Mono",monospace;font-size:0.64rem;letter-spacing:0.08em;
+    color:var(--muted);opacity:0.45;
+    pointer-events:none;
+  }
+</style>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@100;200;300;400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<div class="topbar">
+  <div class="wordmark">同學錄</div>
+  <div style="display:flex;gap:14px;align-items:center;">
+    <div class="filter-tags" id="filterTags" hidden></div>
+    <div class="filter-input-wrap">
+      <input type="text" id="filterInput" class="filter-input" list="tagSuggestions" placeholder="輸入標籤篩選">
+      <button type="button" class="filter-input-add" id="filterInputAdd" aria-label="加入篩選">+</button>
+    </div>
+    <datalist id="tagSuggestions"></datalist>
+    <button class="nav-link" id="submitBtn">＋ 加入我的資料</button>
+    <button class="nav-link" id="indexBtn">Index</button>
+  </div>
+</div>
+
+<div class="intro">
+  <h1>TNDA<br>數位創意創業思維</h1>
+  <p class="intro-en mono">Digital Creativity and Entrepreneurship</p>
+</div>
+
+<div class="credit">小綱製作</div>
+
+<div class="stage" id="stage">
+  <div class="row-viewport" id="rowViewport">
+    <div class="stage-inner" id="stageInner"></div>
+  </div>
+</div>
+
+<div class="index-overlay" id="indexOverlay">
+  <button class="index-close" id="closeIndex">CLOSE ✕</button>
+  <div class="index-search">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    <input id="search" type="text" placeholder="搜尋姓名或標籤..." aria-label="搜尋同學">
+  </div>
+  <p class="index-count mono" id="indexCount"></p>
+  <div class="index-list" id="indexList"></div>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+<aside class="panel" id="panel">
+  <button class="panel-close" id="panelClose">CLOSE ✕</button>
+  <h2 id="pName"></h2>
+  <div class="panel-tags" id="pTags"></div>
+  <p class="panel-bio" id="pBio"></p>
+  <div class="panel-ctas" id="pCtas"></div>
+</aside>
+
+<div class="submit-overlay" id="submitOverlay">
+  <button class="index-close" id="closeSubmit">CLOSE ✕</button>
+  <div class="submit-inner">
+    <h2 class="submit-title">加入 / 編輯我的資料</h2>
+    <div class="submit-tabs">
+      <button class="submit-tab active" data-mode="new">新增資料</button>
+      <button class="submit-tab" data-mode="edit">修改已提交的資料</button>
+    </div>
+
+    <form class="submit-form" id="newForm">
+      <label>姓名 *<input id="nName" type="text" required maxlength="30"></label>
+      <div class="submit-row">
+        <label>Email * <span class="submit-hint">(用來之後修改資料，不會公開顯示)</span><input id="nEmail" type="email" required></label>
+        <label>編輯密碼 * <span class="submit-hint">(之後修改資料要用)</span><input id="nPin" type="password" required maxlength="20"></label>
+      </div>
+      <label>LinkedIn 連結<input id="nLinkedin" type="url" placeholder="https://www.linkedin.com/in/..."></label>
+      <label>作品集連結<input id="nPortfolio" type="url" placeholder="https://..."></label>
+      <label>一句話介紹自己<textarea id="nBio" maxlength="120"></textarea></label>
+      <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開，例如：UI設計、Figma、品牌識別)</span><input id="nTags" type="text"></label>
+      <label>照片<input id="nPhoto" type="file" accept="image/*"></label>
+      <div class="submit-actions">
+        <button type="submit">送出</button>
+      </div>
+      <p class="submit-msg" id="newMsg"></p>
+    </form>
+
+    <form class="submit-form" id="lookupForm" hidden>
+      <p class="submit-hint" style="margin-top:0;">輸入當初提交時填的 Email 與編輯密碼，查詢你的資料。</p>
+      <label>Email<input id="lookupEmail" type="email" required></label>
+      <label>編輯密碼<input id="lookupPin" type="password" required></label>
+      <div class="submit-actions">
+        <button type="submit">查詢</button>
+      </div>
+      <p class="submit-msg" id="lookupMsg"></p>
+    </form>
+
+    <form class="submit-form" id="editForm" hidden>
+      <label>姓名 *<input id="eName" type="text" required maxlength="30"></label>
+      <label>LinkedIn 連結<input id="eLinkedin" type="url"></label>
+      <label>作品集連結<input id="ePortfolio" type="url"></label>
+      <label>一句話介紹自己<textarea id="eBio" maxlength="120"></textarea></label>
+      <label>標籤 <span class="submit-hint">(最多 5 個，用逗號分開)</span><input id="eTags" type="text"></label>
+      <label>換照片 <span class="submit-hint">(不選就保留原本的照片)</span><input id="ePhoto" type="file" accept="image/*"></label>
+      <div class="submit-actions">
+        <button type="submit">更新</button>
+        <button type="button" class="text-btn" id="editCancel">取消，重新查詢</button>
+      </div>
+      <p class="submit-msg" id="editMsg"></p>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ============================================================
+  // CONFIG — pick ONE data source.
+  //
+  // Option A (recommended): Supabase — lets students edit their own
+  // data later. Paste your project URL + anon public key below.
+  // See README.md ("Supabase 設定") for the full walkthrough incl.
+  // the SQL to run once in the Supabase SQL editor.
+  //
+  // Option B: a published Google Sheet CSV link (read-only, no edit
+  // flow). Only used if SUPABASE_URL is left empty.
+  //
+  // Leave both empty to show the demo roster below instead.
+  // ============================================================
+  var SUPABASE_URL = "https://gprlshtecrpttccdyeup.supabase.co";
+  var SUPABASE_ANON_KEY = "sb_publishable_mCEeggua_V--_EeNe2nbHQ_9MECDkJX";
+  var SHEET_CSV_URL = "";
+
+  var sbClient = (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+  // demo roster, shown until SHEET_CSV_URL is set (or if the fetch fails)
+  // image: null shows a placeholder — a live sheet fills this from each student's upload
+  var DEMO_DATA = [
+    {id:"p1", initial:"紀", name:"紀承宇", image:null,
+      tags:["市場驗證","數據追蹤","短影音","產品經理","API開發"],
+      bio:"喜歡在會議室裡，把分歧收斂成一句可以執行的話。",
+      linkedin:"https://www.linkedin.com/in/example-chiaying1", portfolio:"https://example-chiaying1.site"},
+    {id:"p2", initial:"顏", name:"顏豪諭", image:null,
+      tags:["議題梳理","插畫","品牌識別","後端開發","文案寫作"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-boyu2", portfolio:"https://example-boyu2.site"},
+    {id:"p3", initial:"陳", name:"陳誠妤", image:null,
+      tags:["電路設計","談判","短影音","說故事","視覺識別"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-shihhan3", portfolio:"https://example-shihhan3.site"},
+    {id:"p4", initial:"林", name:"林宸佑", image:null,
+      tags:["資料工程","市場驗證","敏捷開發","文案寫作","API開發"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-kuanting4", portfolio:"https://example-kuanting4.site"},
+    {id:"p5", initial:"葉", name:"葉昱璇", image:null,
+      tags:["創業","使用者研究","動態設計","物聯網","效能優化"],
+      bio:"喜歡用畫面說一個文字說不清楚的故事。",
+      linkedin:"https://www.linkedin.com/in/example-yachi5", portfolio:""},
+    {id:"p6", initial:"簡", name:"簡儒靖", image:null,
+      tags:["品牌吉祥物","商業模式","前端開發","使用者研究","活動企劃"],
+      bio:"喜歡把系統拆到最小單位，再重新組回穩定的樣子。",
+      linkedin:"https://www.linkedin.com/in/example-chienhao6", portfolio:"https://example-chienhao6.site"},
+    {id:"p7", initial:"田", name:"田妍思", image:null,
+      tags:["永續材料","市場驗證","動態設計","空間設計","需求盤點"],
+      bio:"喜歡設計讓人忍不住想再玩一次的小規則。",
+      linkedin:"https://www.linkedin.com/in/example-szuying7", portfolio:"https://example-szuying7.site"},
+    {id:"p8", initial:"古", name:"古佳淇", image:null,
+      tags:["使用者訪談","跨團隊溝通","物聯網","數據追蹤","需求盤點"],
+      bio:"喜歡把抽象的個性，畫成一個看得到的角色。",
+      linkedin:"https://www.linkedin.com/in/example-kuanlin8", portfolio:"https://example-kuanlin8.site"},
+    {id:"p9", initial:"裴", name:"裴誠心", image:null,
+      tags:["Python","易用性測試","活動企劃","插畫","資料分析"],
+      bio:"喜歡用畫面說一個文字說不清楚的故事。",
+      linkedin:"https://www.linkedin.com/in/example-tinghsuan9", portfolio:""},
+    {id:"p10", initial:"郭", name:"郭宸怡", image:null,
+      tags:["文案寫作","關卡企劃","模型製作","動態設計","專案管理"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-yuhsuan10", portfolio:""},
+    {id:"p11", initial:"莊", name:"莊誠詠", image:null,
+      tags:["創業","動態貼圖","議題梳理","策略思考","空間設計"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-szuyu11", portfolio:"https://example-szuyu11.site"},
+    {id:"p12", initial:"許", name:"許宇軒", image:null,
+      tags:["後端開發","服務設計","雲端架構","敏捷開發","定量分析"],
+      bio:"相信好的空間能改變人與人相處的方式。",
+      linkedin:"https://www.linkedin.com/in/example-chenghan12", portfolio:"https://example-chenghan12.site"},
+    {id:"p13", initial:"羅", name:"羅怡雅", image:null,
+      tags:["手繪表現","永續材料","字體設計","調色","硬體開發"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-hsinyen13", portfolio:"https://example-hsinyen13.site"},
+    {id:"p14", initial:"汪", name:"汪穎承", image:null,
+      tags:["物聯網","募資簡報","資料工程","雲端架構","財務分析"],
+      bio:"喜歡把一個想法拆成數字，看它到底站不站得住腳。",
+      linkedin:"https://www.linkedin.com/in/example-pohsun14", portfolio:""},
+    {id:"p15", initial:"林", name:"林廷冠", image:null,
+      tags:["成長策略","Unity","API開發","定量分析","風險評估"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-chiayu15", portfolio:"https://example-chiayu15.site"},
+    {id:"p16", initial:"楊", name:"楊勳雯", image:null,
+      tags:["需求盤點","電路設計","硬體開發","UI設計","字體設計"],
+      bio:"相信好的產品是從理解使用者的矛盾開始的。",
+      linkedin:"https://www.linkedin.com/in/example-tzuhsuan16", portfolio:"https://example-tzuhsuan16.site"},
+    {id:"p17", initial:"周", name:"周靖文", image:null,
+      tags:["KOL合作","易用性測試","角色設計","Vue","遊戲設計"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-wenhui17", portfolio:"https://example-wenhui17.site"},
+    {id:"p18", initial:"顏", name:"顏心心", image:null,
+      tags:["影片剪輯","感測器整合","跨團隊溝通","創業","硬體開發"],
+      bio:"喜歡把一個構想，做成真的能插電運作的東西。",
+      linkedin:"https://www.linkedin.com/in/example-yiting18", portfolio:"https://example-yiting18.site"},
+    {id:"p19", initial:"郭", name:"郭晴妤", image:null,
+      tags:["試算表建模","策略思考","3D建模","色彩調性","原型製作"],
+      bio:"喜歡把抽象的個性，畫成一個看得到的角色。",
+      linkedin:"https://www.linkedin.com/in/example-chiajung19", portfolio:""},
+    {id:"p20", initial:"何", name:"何雅宏", image:null,
+      tags:["Figma","視覺識別","感測器整合","活動企劃","短影音"],
+      bio:"喜歡把複雜的東西畫成一眼就懂的介面。",
+      linkedin:"https://www.linkedin.com/in/example-yenting20", portfolio:""},
+    {id:"p21", initial:"紀", name:"紀廷妍", image:null,
+      tags:["前端開發","插畫","機器學習","React","互動敘事"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-chiahsuan21", portfolio:""},
+    {id:"p22", initial:"董", name:"董翰晴", image:null,
+      tags:["DevOps","品牌吉祥物","影片剪輯","數據追蹤","公開演說"],
+      bio:"喜歡拆解複雜的問題，找到最關鍵的那一步。",
+      linkedin:"https://www.linkedin.com/in/example-poyi22", portfolio:""},
+    {id:"p23", initial:"古", name:"古恩翔", image:null,
+      tags:["議題梳理","公開演說","調色","服務設計","資料庫設計"],
+      bio:"喜歡把重複的事交給程式做，把時間留給有趣的問題。",
+      linkedin:"https://www.linkedin.com/in/example-yating23", portfolio:"https://example-yating23.site"},
+    {id:"p24", initial:"蘇", name:"蘇妤廷", image:null,
+      tags:["商業模式","物聯網","說故事","產品經理","議題梳理"],
+      bio:"相信好的空間能改變人與人相處的方式。",
+      linkedin:"https://www.linkedin.com/in/example-junting24", portfolio:""},
+    {id:"p25", initial:"徐", name:"徐淇佳", image:null,
+      tags:["感測器整合","資料庫設計","服務設計","電路設計","UX設計"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-yiwei25", portfolio:"https://example-yiwei25.site"},
+    {id:"p26", initial:"田", name:"田彥瑄", image:null,
+      tags:["公開演說","遊戲設計","敘事節奏","文案寫作","策略思考"],
+      bio:"喜歡把重複的事交給程式做，把時間留給有趣的問題。",
+      linkedin:"https://www.linkedin.com/in/example-hsuanyu26", portfolio:""},
+    {id:"p27", initial:"林", name:"林萱廷", image:null,
+      tags:["動態設計","團隊管理","議題梳理","原型測試","遊戲設計"],
+      bio:"用數據說故事，找出隱藏在雜訊裡的訊號。",
+      linkedin:"https://www.linkedin.com/in/example-peiyu27", portfolio:""},
+    {id:"p28", initial:"郭", name:"郭廷品", image:null,
+      tags:["電路設計","易用性測試","資料分析","服務設計","動態貼圖"],
+      bio:"喜歡把雜亂的資料，訓練成一個能做決定的模型。",
+      linkedin:"https://www.linkedin.com/in/example-chiahung28", portfolio:"https://example-chiahung28.site"},
+    {id:"p29", initial:"田", name:"田辰宸", image:null,
+      tags:["易用性測試","互動敘事","Vue","商業分析","前端開發"],
+      bio:"喜歡把一個構想，做成真的能插電運作的東西。",
+      linkedin:"https://www.linkedin.com/in/example-yujen29", portfolio:""},
+    {id:"p30", initial:"汪", name:"汪彥伸", image:null,
+      tags:["效能優化","角色設計","數據追蹤","動態貼圖","字體設計"],
+      bio:"喜歡把重複的事交給程式做，把時間留給有趣的問題。",
+      linkedin:"https://www.linkedin.com/in/example-tingwei30", portfolio:"https://example-tingwei30.site"},
+    {id:"p31", initial:"謝", name:"謝品宸", image:null,
+      tags:["原型製作","資料分析","創業","內容行銷","KOL合作"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-hsinyu31", portfolio:"https://example-hsinyu31.site"},
+    {id:"p32", initial:"古", name:"古博振", image:null,
+      tags:["資料分析","React","UX設計","動態設計","質性訪談"],
+      bio:"喜歡在留言區裡，聽見品牌真正被討論的方式。",
+      linkedin:"https://www.linkedin.com/in/example-chiahui32", portfolio:"https://example-chiahui32.site"},
+    {id:"p33", initial:"張", name:"張詠翰", image:null,
+      tags:["Unity","創業","DevOps","自然語言處理","前端開發"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-poyu33", portfolio:"https://example-poyu33.site"},
+    {id:"p34", initial:"賴", name:"賴佳晴", image:null,
+      tags:["風險評估","A/B測試","硬體開發","UX設計","感測器整合"],
+      bio:"喜歡把系統拆到最小單位，再重新組回穩定的樣子。",
+      linkedin:"https://www.linkedin.com/in/example-yenhsuan34", portfolio:"https://example-yenhsuan34.site"},
+    {id:"p35", initial:"吳", name:"吳妍廷", image:null,
+      tags:["雲端架構","API開發","感測器整合","敏捷開發","募資簡報"],
+      bio:"喜歡把系統拆到最小單位，再重新組回穩定的樣子。",
+      linkedin:"https://www.linkedin.com/in/example-szuchi35", portfolio:"https://example-szuchi35.site"},
+    {id:"p36", initial:"阮", name:"阮宏子", image:null,
+      tags:["創業","Unity","遊戲設計","品牌行銷","服務設計"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-weichen36", portfolio:"https://example-weichen36.site"},
+    {id:"p37", initial:"宋", name:"宋蓉涵", image:null,
+      tags:["UI設計","機器學習","DevOps","創業","需求盤點"],
+      bio:"相信細節是唯一不會說謊的地方。",
+      linkedin:"https://www.linkedin.com/in/example-chiahsin37", portfolio:"https://example-chiahsin37.site"},
+    {id:"p38", initial:"阮", name:"阮佑誠", image:null,
+      tags:["UX設計","雲端架構","React","敏捷開發","電路設計"],
+      bio:"喜歡把重複的事交給程式做，把時間留給有趣的問題。",
+      linkedin:"https://www.linkedin.com/in/example-yuting38", portfolio:"https://example-yuting38.site"},
+    {id:"p39", initial:"駱", name:"駱柏柏", image:null,
+      tags:["攝影","DevOps","使用者研究","試算表建模","空間設計"],
+      bio:"喜歡把重複的事交給程式做，把時間留給有趣的問題。",
+      linkedin:"https://www.linkedin.com/in/example-poching39", portfolio:"https://example-poching39.site"},
+    {id:"p40", initial:"郭", name:"郭廷妤", image:null,
+      tags:["模型部署","原型測試","公開演說","質性訪談","敏捷開發"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-hsinjung40", portfolio:"https://example-hsinjung40.site"},
+    {id:"p41", initial:"戴", name:"戴宇品", image:null,
+      tags:["品牌識別","成長策略","機器學習","公開演說","數據追蹤"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-chiaying41", portfolio:""},
+    {id:"p42", initial:"卓", name:"卓妤怡", image:null,
+      tags:["插畫","影片剪輯","短影音","社群經營","動態設計"],
+      bio:"喜歡設計讓人忍不住想再玩一次的小規則。",
+      linkedin:"https://www.linkedin.com/in/example-boyu42", portfolio:""},
+    {id:"p43", initial:"盧", name:"盧妍心", image:null,
+      tags:["品牌識別","商業模式","策略思考","機器學習","市場驗證"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-shihhan43", portfolio:"https://example-shihhan43.site"},
+    {id:"p44", initial:"曾", name:"曾昱宇", image:null,
+      tags:["策略思考","物聯網","機器學習","品牌識別","雲端架構"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-kuanting44", portfolio:""},
+    {id:"p45", initial:"潘", name:"潘詩妤", image:null,
+      tags:["字體設計","攝影","自然語言處理","資料分析","使用者訪談"],
+      bio:"喜歡在混亂的專案裡，找出一條大家都同意的路。",
+      linkedin:"https://www.linkedin.com/in/example-yachi45", portfolio:""},
+    {id:"p46", initial:"余", name:"余睿子", image:null,
+      tags:["品牌行銷","使用者研究","攝影","UI設計","原型製作"],
+      bio:"喜歡用剪接的節奏，決定觀眾什麼時候該有感覺。",
+      linkedin:"https://www.linkedin.com/in/example-chienhao46", portfolio:"https://example-chienhao46.site"},
+    {id:"p47", initial:"莊", name:"莊妤靖", image:null,
+      tags:["攝影","前端開發","機器學習","質性訪談","資料分析"],
+      bio:"喜歡在會議室裡，把分歧收斂成一句可以執行的話。",
+      linkedin:"https://www.linkedin.com/in/example-szuying47", portfolio:"https://example-szuying47.site"},
+    {id:"p48", initial:"翁", name:"翁博冠", image:null,
+      tags:["試算表建模","公開演說","Python","策略思考","財務分析"],
+      bio:"喜歡用剪接的節奏，決定觀眾什麼時候該有感覺。",
+      linkedin:"https://www.linkedin.com/in/example-kuanlin48", portfolio:""},
+    {id:"p49", initial:"謝", name:"謝怡宇", image:null,
+      tags:["A/B測試","角色設計","風險評估","策略思考","感測器整合"],
+      bio:"喜歡把複雜的東西畫成一眼就懂的介面。",
+      linkedin:"https://www.linkedin.com/in/example-tinghsuan49", portfolio:""},
+    {id:"p50", initial:"郭", name:"郭恩品", image:null,
+      tags:["使用者訪談","Python","調色","色彩調性","文案寫作"],
+      bio:"喜歡在混亂的專案裡，找出一條大家都同意的路。",
+      linkedin:"https://www.linkedin.com/in/example-yuhsuan50", portfolio:"https://example-yuhsuan50.site"},
+    {id:"p51", initial:"余", name:"余瑄建", image:null,
+      tags:["團隊管理","互動敘事","質性訪談","機器學習","後端開發"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-szuyu51", portfolio:"https://example-szuyu51.site"},
+    {id:"p52", initial:"何", name:"何妤柏", image:null,
+      tags:["品牌識別","使用者研究","數據追蹤","影片剪輯","A/B測試"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-chenghan52", portfolio:"https://example-chenghan52.site"},
+    {id:"p53", initial:"龔", name:"龔睿子", image:null,
+      tags:["手繪表現","關卡企劃","策略思考","數據追蹤","專案管理"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-hsinyen53", portfolio:"https://example-hsinyen53.site"},
+    {id:"p54", initial:"余", name:"余妤佑", image:null,
+      tags:["短影音","成長策略","原型製作","調色","服務設計"],
+      bio:"喜歡用剪接的節奏，決定觀眾什麼時候該有感覺。",
+      linkedin:"https://www.linkedin.com/in/example-pohsun54", portfolio:""},
+    {id:"p55", initial:"田", name:"田翰振", image:null,
+      tags:["產品經理","調色","硬體開發","原型測試","字體設計"],
+      bio:"相信好的產品是從理解使用者的矛盾開始的。",
+      linkedin:"https://www.linkedin.com/in/example-chiayu55", portfolio:"https://example-chiayu55.site"},
+    {id:"p56", initial:"余", name:"余佳冠", image:null,
+      tags:["Unity","議題梳理","感測器整合","說故事","需求盤點"],
+      bio:"相信細節是唯一不會說謊的地方。",
+      linkedin:"https://www.linkedin.com/in/example-tzuhsuan56", portfolio:"https://example-tzuhsuan56.site"},
+    {id:"p57", initial:"彭", name:"彭廷廷", image:null,
+      tags:["市場驗證","原型製作","遊戲設計","定量分析","KOL合作"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-wenhui57", portfolio:"https://example-wenhui57.site"},
+    {id:"p58", initial:"阮", name:"阮瑋彥", image:null,
+      tags:["募資簡報","機器學習","資料分析","電路設計","Vue"],
+      bio:"用數據說故事，找出隱藏在雜訊裡的訊號。",
+      linkedin:"https://www.linkedin.com/in/example-yiting58", portfolio:""},
+    {id:"p59", initial:"柯", name:"柯勳翰", image:null,
+      tags:["前端開發","談判","公開演說","機器學習","電路設計"],
+      bio:"喜歡把抽象的個性，畫成一個看得到的角色。",
+      linkedin:"https://www.linkedin.com/in/example-chiajung59", portfolio:"https://example-chiajung59.site"},
+    {id:"p60", initial:"郭", name:"郭妤萱", image:null,
+      tags:["動態貼圖","Figma","品牌吉祥物","永續材料","敘事節奏"],
+      bio:"喜歡把複雜的東西畫成一眼就懂的介面。",
+      linkedin:"https://www.linkedin.com/in/example-yenting60", portfolio:"https://example-yenting60.site"},
+    {id:"p61", initial:"洪", name:"洪萱妤", image:null,
+      tags:["物聯網","電路設計","使用者訪談","短影音","遊戲設計"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-chiahsuan61", portfolio:""},
+    {id:"p62", initial:"董", name:"董宇萱", image:null,
+      tags:["資料工程","策略思考","跨團隊溝通","調色","DevOps"],
+      bio:"喜歡把一個構想，做成真的能插電運作的東西。",
+      linkedin:"https://www.linkedin.com/in/example-poyi62", portfolio:"https://example-poyi62.site"},
+    {id:"p63", initial:"唐", name:"唐柏諭", image:null,
+      tags:["角色設計","品牌識別","Vue","議題梳理","產品經理"],
+      bio:"喜歡把抽象的個性，畫成一個看得到的角色。",
+      linkedin:"https://www.linkedin.com/in/example-yating63", portfolio:""},
+    {id:"p64", initial:"潘", name:"潘怡君", image:null,
+      tags:["文案寫作","動態設計","Python","資料工程","永續材料"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-junting64", portfolio:"https://example-junting64.site"},
+    {id:"p65", initial:"宋", name:"宋妤亦", image:null,
+      tags:["Vue","影片剪輯","Figma","電路設計","服務設計"],
+      bio:"喜歡設計讓人忍不住想再玩一次的小規則。",
+      linkedin:"https://www.linkedin.com/in/example-yiwei65", portfolio:""},
+    {id:"p66", initial:"張", name:"張涵宇", image:null,
+      tags:["數據追蹤","社群經營","Figma","質性訪談","敏捷開發"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-hsuanyu66", portfolio:""},
+    {id:"p67", initial:"古", name:"古承宸", image:null,
+      tags:["文案寫作","調色","品牌行銷","3D建模","跨團隊溝通"],
+      bio:"喜歡把一個構想，做成真的能插電運作的東西。",
+      linkedin:"https://www.linkedin.com/in/example-peiyu67", portfolio:"https://example-peiyu67.site"},
+    {id:"p68", initial:"莊", name:"莊承宸", image:null,
+      tags:["試算表建模","API開發","動態貼圖","品牌識別","品牌吉祥物"],
+      bio:"喜歡在會議室裡，把分歧收斂成一句可以執行的話。",
+      linkedin:"https://www.linkedin.com/in/example-chiahung68", portfolio:"https://example-chiahung68.site"},
+    {id:"p69", initial:"柯", name:"柯柏妤", image:null,
+      tags:["React","視覺識別","定量分析","數據追蹤","API開發"],
+      bio:"喜歡把使用者沒說出口的困擾，變成設計上的一個決定。",
+      linkedin:"https://www.linkedin.com/in/example-yujen69", portfolio:"https://example-yujen69.site"},
+    {id:"p70", initial:"田", name:"田怡翰", image:null,
+      tags:["角色設計","使用者研究","自然語言處理","物聯網","議題梳理"],
+      bio:"喜歡在會議室裡，把分歧收斂成一句可以執行的話。",
+      linkedin:"https://www.linkedin.com/in/example-tingwei70", portfolio:"https://example-tingwei70.site"},
+    {id:"p71", initial:"方", name:"方宏穎", image:null,
+      tags:["談判","遊戲設計","API開發","攝影","空間設計"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-hsinyu71", portfolio:"https://example-hsinyu71.site"},
+    {id:"p72", initial:"呂", name:"呂勳恩", image:null,
+      tags:["成長策略","原型製作","募資簡報","A/B測試","物聯網"],
+      bio:"喜歡把雜亂的資料，訓練成一個能做決定的模型。",
+      linkedin:"https://www.linkedin.com/in/example-chiahui72", portfolio:"https://example-chiahui72.site"},
+    {id:"p73", initial:"侯", name:"侯諭佳", image:null,
+      tags:["Python","數據追蹤","後端開發","市場驗證","說故事"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-poyu73", portfolio:"https://example-poyu73.site"},
+    {id:"p74", initial:"溫", name:"溫冠怡", image:null,
+      tags:["資料工程","品牌識別","關卡企劃","Python","商業分析"],
+      bio:"喜歡把雜亂的資料，訓練成一個能做決定的模型。",
+      linkedin:"https://www.linkedin.com/in/example-yenhsuan74", portfolio:""},
+    {id:"p75", initial:"戴", name:"戴廷宏", image:null,
+      tags:["市場驗證","字體設計","原型測試","UX設計","原型製作"],
+      bio:"喜歡拆解複雜的問題，找到最關鍵的那一步。",
+      linkedin:"https://www.linkedin.com/in/example-szuchi75", portfolio:""},
+    {id:"p76", initial:"翁", name:"翁品宜", image:null,
+      tags:["原型測試","KOL合作","影片剪輯","遊戲設計","說故事"],
+      bio:"喜歡把複雜的東西畫成一眼就懂的介面。",
+      linkedin:"https://www.linkedin.com/in/example-weichen76", portfolio:""},
+    {id:"p77", initial:"何", name:"何伸廷", image:null,
+      tags:["試算表建模","動態貼圖","3D建模","影片剪輯","感測器整合"],
+      bio:"喜歡在混亂的專案裡，找出一條大家都同意的路。",
+      linkedin:"https://www.linkedin.com/in/example-chiahsin77", portfolio:""},
+    {id:"p78", initial:"莊", name:"莊柏嘉", image:null,
+      tags:["模型部署","動態設計","募資簡報","試算表建模","品牌行銷"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-yuting78", portfolio:""},
+    {id:"p79", initial:"楊", name:"楊怡翰", image:null,
+      tags:["物聯網","商業分析","商業模式","文案寫作","敘事節奏"],
+      bio:"喜歡把一個品牌的個性，用一句話講清楚。",
+      linkedin:"https://www.linkedin.com/in/example-poching79", portfolio:"https://example-poching79.site"},
+    {id:"p80", initial:"詹", name:"詹辰怡", image:null,
+      tags:["團隊管理","資料庫設計","商業模式","財務分析","活動企劃"],
+      bio:"喜歡設計讓人忍不住想再玩一次的小規則。",
+      linkedin:"https://www.linkedin.com/in/example-hsinjung80", portfolio:""},
+    {id:"p81", initial:"林", name:"林詠心", image:null,
+      tags:["市場驗證","使用者研究","服務設計","感測器整合","財務分析"],
+      bio:"喜歡把使用者沒說出口的困擾，變成設計上的一個決定。",
+      linkedin:"https://www.linkedin.com/in/example-chiaying81", portfolio:"https://example-chiaying81.site"},
+    {id:"p82", initial:"紀", name:"紀宜妤", image:null,
+      tags:["UX設計","品牌吉祥物","團隊管理","影片剪輯","敘事節奏"],
+      bio:"喜歡把抽象的個性，畫成一個看得到的角色。",
+      linkedin:"https://www.linkedin.com/in/example-boyu82", portfolio:""},
+    {id:"p83", initial:"李", name:"李亦晴", image:null,
+      tags:["雲端架構","前端開發","策略思考","遊戲設計","React"],
+      bio:"喜歡在留言區裡，聽見品牌真正被討論的方式。",
+      linkedin:"https://www.linkedin.com/in/example-shihhan83", portfolio:"https://example-shihhan83.site"},
+    {id:"p84", initial:"李", name:"李勳勳", image:null,
+      tags:["角色設計","風險評估","Vue","數據追蹤","效能優化"],
+      bio:"喜歡用剪接的節奏，決定觀眾什麼時候該有感覺。",
+      linkedin:"https://www.linkedin.com/in/example-kuanting84", portfolio:"https://example-kuanting84.site"},
+    {id:"p85", initial:"駱", name:"駱怡儒", image:null,
+      tags:["短影音","原型製作","永續材料","說故事","色彩調性"],
+      bio:"喜歡把系統拆到最小單位，再重新組回穩定的樣子。",
+      linkedin:"https://www.linkedin.com/in/example-yachi85", portfolio:"https://example-yachi85.site"},
+    {id:"p86", initial:"羅", name:"羅文宸", image:null,
+      tags:["質性訪談","易用性測試","A/B測試","資料庫設計","內容行銷"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-chienhao86", portfolio:""},
+    {id:"p87", initial:"古", name:"古建宸", image:null,
+      tags:["KOL合作","成長策略","感測器整合","React","需求盤點"],
+      bio:"喜歡把複雜的東西畫成一眼就懂的介面。",
+      linkedin:"https://www.linkedin.com/in/example-szuying87", portfolio:"https://example-szuying87.site"},
+    {id:"p88", initial:"卓", name:"卓怡沛", image:null,
+      tags:["財務分析","插畫","活動企劃","團隊管理","動態設計"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-kuanlin88", portfolio:"https://example-kuanlin88.site"},
+    {id:"p89", initial:"裴", name:"裴廷諭", image:null,
+      tags:["社群經營","議題梳理","雲端架構","電路設計","短影音"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-tinghsuan89", portfolio:""},
+    {id:"p90", initial:"曾", name:"曾柏淇", image:null,
+      tags:["易用性測試","跨團隊溝通","試算表建模","字體設計","角色設計"],
+      bio:"喜歡把系統拆到最小單位，再重新組回穩定的樣子。",
+      linkedin:"https://www.linkedin.com/in/example-yuhsuan90", portfolio:"https://example-yuhsuan90.site"},
+    {id:"p91", initial:"呂", name:"呂博伸", image:null,
+      tags:["募資簡報","Unity","電路設計","關卡企劃","色彩調性"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-szuyu91", portfolio:"https://example-szuyu91.site"},
+    {id:"p92", initial:"龔", name:"龔恩君", image:null,
+      tags:["使用者訪談","品牌行銷","品牌識別","後端開發","活動企劃"],
+      bio:"喜歡在會議室裡，把分歧收斂成一句可以執行的話。",
+      linkedin:"https://www.linkedin.com/in/example-chenghan92", portfolio:"https://example-chenghan92.site"},
+    {id:"p93", initial:"溫", name:"溫諭柏", image:null,
+      tags:["募資簡報","品牌吉祥物","使用者研究","成長策略","影片剪輯"],
+      bio:"喜歡在混亂的專案裡，找出一條大家都同意的路。",
+      linkedin:"https://www.linkedin.com/in/example-hsinyen93", portfolio:"https://example-hsinyen93.site"},
+    {id:"p94", initial:"唐", name:"唐蓉軒", image:null,
+      tags:["動態貼圖","攝影","遊戲設計","後端開發","影片剪輯"],
+      bio:"喜歡設計讓人忍不住想再玩一次的小規則。",
+      linkedin:"https://www.linkedin.com/in/example-pohsun94", portfolio:"https://example-pohsun94.site"},
+    {id:"p95", initial:"劉", name:"劉妤宸", image:null,
+      tags:["機器學習","公開演說","關卡企劃","團隊管理","策略思考"],
+      bio:"喜歡用剪接的節奏，決定觀眾什麼時候該有感覺。",
+      linkedin:"https://www.linkedin.com/in/example-chiayu95", portfolio:""},
+    {id:"p96", initial:"黃", name:"黃怡亦", image:null,
+      tags:["Python","雲端架構","策略思考","互動敘事","UI設計"],
+      bio:"喜歡在會議室裡，把分歧收斂成一句可以執行的話。",
+      linkedin:"https://www.linkedin.com/in/example-tzuhsuan96", portfolio:"https://example-tzuhsuan96.site"},
+    {id:"p97", initial:"呂", name:"呂品冠", image:null,
+      tags:["商業模式","原型製作","空間設計","質性訪談","關卡企劃"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-wenhui97", portfolio:"https://example-wenhui97.site"},
+    {id:"p98", initial:"李", name:"李子佳", image:null,
+      tags:["感測器整合","DevOps","團隊管理","色彩調性","遊戲設計"],
+      bio:"從零到一，喜歡把模糊的想法變成能上線的產品。",
+      linkedin:"https://www.linkedin.com/in/example-yiting98", portfolio:""},
+    {id:"p99", initial:"紀", name:"紀璇彥", image:null,
+      tags:["需求盤點","試算表建模","感測器整合","UX設計","公開演說"],
+      bio:"相信好故事比好廣告更能留住人。",
+      linkedin:"https://www.linkedin.com/in/example-chiajung99", portfolio:""},
+    {id:"p100", initial:"宋", name:"宋承豪", image:null,
+      tags:["效能優化","敏捷開發","關卡企劃","財務分析","互動敘事"],
+      bio:"喜歡把使用者沒說出口的困擾，變成設計上的一個決定。",
+      linkedin:"https://www.linkedin.com/in/example-yenting100", portfolio:""},
+    {id:"p101", initial:"宋", name:"宋晴沛", image:null,
+      tags:["數據追蹤","動態設計","感測器整合","專案管理","手繪表現"],
+      bio:"喜歡拆解複雜的問題，找到最關鍵的那一步。",
+      linkedin:"https://www.linkedin.com/in/example-chiahsuan101", portfolio:"https://example-chiahsuan101.site"},
+    {id:"p102", initial:"方", name:"方妍雅", image:null,
+      tags:["市場驗證","談判","資料工程","Unity","募資簡報"],
+      bio:"喜歡把複雜的東西畫成一眼就懂的介面。",
+      linkedin:"https://www.linkedin.com/in/example-poyi102", portfolio:""},
+    {id:"p103", initial:"洪", name:"洪諭品", image:null,
+      tags:["遊戲設計","敏捷開發","說故事","物聯網","敘事節奏"],
+      bio:"喜歡設計讓人忍不住想再玩一次的小規則。",
+      linkedin:"https://www.linkedin.com/in/example-yating103", portfolio:""},
+    {id:"p104", initial:"詹", name:"詹晴怡", image:null,
+      tags:["動態設計","Python","商業模式","KOL合作","品牌吉祥物"],
+      bio:"喜歡用畫面說一個文字說不清楚的故事。",
+      linkedin:"https://www.linkedin.com/in/example-junting104", portfolio:""},
+    {id:"p105", initial:"游", name:"游品涵", image:null,
+      tags:["資料分析","影片剪輯","永續材料","手繪表現","敏捷開發"],
+      bio:"喜歡把雜亂的資料，訓練成一個能做決定的模型。",
+      linkedin:"https://www.linkedin.com/in/example-yiwei105", portfolio:"https://example-yiwei105.site"},
+    {id:"p106", initial:"許", name:"許冠諭", image:null,
+      tags:["機器學習","資料庫設計","色彩調性","硬體開發","動態設計"],
+      bio:"喜歡把複雜的東西畫成一眼就懂的介面。",
+      linkedin:"https://www.linkedin.com/in/example-hsuanyu106", portfolio:"https://example-hsuanyu106.site"},
+    {id:"p107", initial:"謝", name:"謝勳淇", image:null,
+      tags:["影片剪輯","創業","資料工程","質性訪談","模型製作"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-peiyu107", portfolio:""},
+    {id:"p108", initial:"蘇", name:"蘇詠怡", image:null,
+      tags:["資料分析","定量分析","遊戲設計","電路設計","插畫"],
+      bio:"喜歡把一個構想，做成真的能插電運作的東西。",
+      linkedin:"https://www.linkedin.com/in/example-chiahung108", portfolio:""},
+    {id:"p109", initial:"紀", name:"紀瑋妍", image:null,
+      tags:["後端開發","攝影","資料庫設計","色彩調性","跨團隊溝通"],
+      bio:"喜歡把使用者沒說出口的困擾，變成設計上的一個決定。",
+      linkedin:"https://www.linkedin.com/in/example-yujen109", portfolio:""},
+    {id:"p110", initial:"陳", name:"陳涵君", image:null,
+      tags:["易用性測試","財務分析","模型部署","3D建模","攝影"],
+      bio:"用數據說故事，找出隱藏在雜訊裡的訊號。",
+      linkedin:"https://www.linkedin.com/in/example-tingwei110", portfolio:""},
+    {id:"p111", initial:"謝", name:"謝宸軒", image:null,
+      tags:["跨團隊溝通","成長策略","Vue","A/B測試","永續材料"],
+      bio:"喜歡把一個構想，做成真的能插電運作的東西。",
+      linkedin:"https://www.linkedin.com/in/example-hsinyu111", portfolio:"https://example-hsinyu111.site"},
+    {id:"p112", initial:"董", name:"董品柏", image:null,
+      tags:["活動企劃","調色","品牌行銷","動態設計","UX設計"],
+      bio:"喜歡把抽象的個性，畫成一個看得到的角色。",
+      linkedin:"https://www.linkedin.com/in/example-chiahui112", portfolio:"https://example-chiahui112.site"},
+    {id:"p113", initial:"涂", name:"涂晴宸", image:null,
+      tags:["React","色彩調性","自然語言處理","視覺識別","風險評估"],
+      bio:"喜歡把一件小事做到別人挑不出毛病。",
+      linkedin:"https://www.linkedin.com/in/example-poyu113", portfolio:"https://example-poyu113.site"},
+    {id:"p114", initial:"卓", name:"卓亦振", image:null,
+      tags:["風險評估","社群經營","手繪表現","敘事節奏","API開發"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-yenhsuan114", portfolio:"https://example-yenhsuan114.site"},
+    {id:"p115", initial:"葉", name:"葉睿庭", image:null,
+      tags:["財務分析","Figma","模型製作","市場驗證","UX設計"],
+      bio:"喜歡在留言區裡，聽見品牌真正被討論的方式。",
+      linkedin:"https://www.linkedin.com/in/example-szuchi115", portfolio:"https://example-szuchi115.site"},
+    {id:"p116", initial:"游", name:"游冠璇", image:null,
+      tags:["關卡企劃","團隊管理","活動企劃","使用者訪談","模型部署"],
+      bio:"喜歡站在使用者跟工程師中間，把需求翻譯成產品。",
+      linkedin:"https://www.linkedin.com/in/example-weichen116", portfolio:"https://example-weichen116.site"},
+    {id:"p117", initial:"康", name:"康亦妍", image:null,
+      tags:["定量分析","資料庫設計","使用者研究","試算表建模","色彩調性"],
+      bio:"喜歡把重複的事交給程式做，把時間留給有趣的問題。",
+      linkedin:"https://www.linkedin.com/in/example-chiahsin117", portfolio:"https://example-chiahsin117.site"},
+    {id:"p118", initial:"翁", name:"翁心豪", image:null,
+      tags:["財務分析","Python","談判","成長策略","社群經營"],
+      bio:"用數據說故事，找出隱藏在雜訊裡的訊號。",
+      linkedin:"https://www.linkedin.com/in/example-yuting118", portfolio:"https://example-yuting118.site"},
+    {id:"p119", initial:"龔", name:"龔靖辰", image:null,
+      tags:["Unity","募資簡報","跨團隊溝通","品牌行銷","敘事節奏"],
+      bio:"喜歡把系統拆到最小單位，再重新組回穩定的樣子。",
+      linkedin:"https://www.linkedin.com/in/example-poching119", portfolio:"https://example-poching119.site"},
+    {id:"p120", initial:"蘇", name:"蘇承豪", image:null,
+      tags:["React","專案管理","短影音","模型製作","原型測試"],
+      bio:"喜歡設計讓人忍不住想再玩一次的小規則。",
+      linkedin:"https://www.linkedin.com/in/example-hsinjung120", portfolio:""}
+  ];
+
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var stageInner = document.getElementById('stageInner');
+  var indexList = document.getElementById('indexList');
+  var currentData = [];
+
+  // ---- turn a Google Sheet CSV export into the roster array ----
+  // shuffled fresh each page load, so the CD order isn't the same every visit
+  function shuffleRoster(arr){
+    var a = arr.slice();
+    for(var i = a.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
+
+  function parseCsv(text){
+    var rows = [], row = [], field = '', inQuotes = false;
+    for(var i = 0; i < text.length; i++){
+      var c = text[i];
+      if(inQuotes){
+        if(c === '"'){
+          if(text[i+1] === '"'){ field += '"'; i++; } else { inQuotes = false; }
+        } else field += c;
+      } else if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ row.push(field); field = ''; }
+      else if(c === '\n' || c === '\r'){
+        if(c === '\r' && text[i+1] === '\n') i++;
+        row.push(field); field = '';
+        if(row.length > 1 || row[0] !== ''){ rows.push(row); }
+        row = [];
+      } else field += c;
+    }
+    if(field !== '' || row.length){ row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  // accepts a raw Google Drive share link (from a Forms file-upload answer)
+  // and rewrites it into a URL that actually hotlinks as an <img> source
+  function driveDirectLink(url){
+    if(!url) return null;
+    var m = url.match(/[-\w]{25,}/); // the file ID
+    if(!m) return /^https?:\/\//.test(url) ? url : null; // maybe already a plain image URL
+    return 'https://drive.google.com/thumbnail?id=' + m[0] + '&sz=w1000';
+  }
+
+  function csvToRoster(text){
+    var rows = parseCsv(text);
+    if(rows.length < 2) return [];
+    var header = rows[0].map(function(h){ return h.trim(); });
+    var col = {};
+    header.forEach(function(h, i){ col[h] = i; });
+    function get(r, name){ return col[name] !== undefined ? (r[col[name]] || '').trim() : ''; }
+
+    return rows.slice(1).filter(function(r){ return get(r,'姓名'); }).map(function(r, i){
+      var name = get(r,'姓名');
+      var tags = [];
+      for(var t = 1; t <= 5; t++){
+        var v = get(r,'標籤'+t);
+        if(v) tags.push(v);
+      }
+      return {
+        id: 'p' + i,
+        initial: name.slice(0,1),
+        name: name,
+        image: driveDirectLink(get(r,'照片上傳')),
+        tags: tags,
+        bio: get(r,'一句話介紹自己'),
+        linkedin: get(r,'LinkedIn連結'),
+        portfolio: get(r,'作品集連結')
+      };
+    });
+  }
+
+  // ---- read the public roster from Supabase (students_public view — never
+  // exposes email/edit_pin, see README's SQL setup) ----
+  function loadFromSupabase(){
+    if(!sbClient) return;
+    sbClient.from('students_public').select('*').order('created_at', {ascending:true})
+      .then(function(res){
+        if(res.error){ console.warn('同學錄：讀取 Supabase 資料失敗。', res.error); return; }
+        var rows = res.data || [];
+        var roster = rows.map(function(r){
+          return {
+            id: r.id,
+            initial: (r.name||'').slice(0,1),
+            name: r.name,
+            image: r.photo_url || null,
+            tags: r.tags || [],
+            bio: r.bio || '',
+            linkedin: r.linkedin || '',
+            portfolio: r.portfolio || ''
+          };
+        });
+        renderRoster(shuffleRoster(roster));
+      })
+      .catch(function(err){ console.warn('同學錄：讀取 Supabase 資料失敗。', err); });
+  }
+
+  // ---- build DOM (tidy horizontal row) ----
+  function renderRoster(data){
+    currentData = data;
+    stageInner.innerHTML = '';
+    indexList.innerHTML = '';
+
+    data.forEach(function(d, i){
+      var num = ('0'+(i+1)).slice(-2);
+
+      var coverInner = d.image
+        ? '<div class="disc-cover" style="background-image:url(\''+d.image+'\')"></div>'
+        : '<div class="disc-cover placeholder"><span class="ph-initial">'+d.initial+'</span></div>';
+
+      var tagsHtml = d.tags.slice(0,5).map(function(t){ return '<span class="tag-chip">'+t+'</span>'; }).join('');
+
+      var wrap = document.createElement('div');
+      wrap.className = 'disc-wrap';
+      wrap.id = 'wrap-' + d.id;
+      wrap.innerHTML =
+        '<div class="disc-3d" data-id="'+d.id+'">' +
+          '<div class="disc-hl"></div>' +
+          '<div class="disc-face disc-face-front">' +
+            '<div class="disc-rim"></div>' +
+            coverInner +
+            '<div class="disc-texture"></div>' +
+            '<div class="disc-sheen"></div>' +
+            '<div class="disc-vignette"></div>' +
+            '<div class="disc-hole"></div>' +
+          '</div>' +
+          '<div class="disc-face disc-face-back">' +
+            '<div class="disc-rim"></div>' +
+            '<div class="disc-groove"></div>' +
+            '<div class="disc-hole"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="disc-name">' +
+          '<span class="nm">'+d.name+'</span>' +
+          '<div class="disc-tags">'+tagsHtml+'</div>' +
+        '</div>';
+      stageInner.appendChild(wrap);
+
+      var avatarInner = d.image
+        ? '<span class="iavatar" style="background-image:url(\''+d.image+'\')"></span>'
+        : '<span class="iavatar"><span class="iav-init">'+d.initial+'</span></span>';
+
+      var item = document.createElement('a');
+      item.className = 'index-item';
+      item.dataset.target = d.id;
+      item.innerHTML = avatarInner +
+        '<span class="nm">'+d.name+'</span>' +
+        '<span class="imeta mono">'+d.tags.slice(0,2).join(' · ')+'</span>';
+      item.dataset.search = (d.name+' '+d.tags.join(' ')).toLowerCase();
+      indexList.appendChild(item);
+    });
+
+    var countEl = document.getElementById('indexCount');
+    if(countEl) countEl.textContent = '共 ' + data.length + ' 位同學';
+
+    attachDiscInteractions();
+    applyFilter(activeFilterTags);
+    refreshTagSuggestions();
+  }
+
+  // ---- tag filter: click one or more tag chips under a CD to show only CDs
+  // that share at least one of the selected tags. Click a selected tag again
+  // (or the "clear filter" pill) to remove it / clear all. ----
+  var activeFilterTags = [];
+  var pendingCollapseTimer = null;
+  var filterTagsEl = document.getElementById('filterTags');
+  function updateChipStates(){
+    document.querySelectorAll('.disc-tags .tag-chip').forEach(function(chip){
+      chip.classList.toggle('chip-active', activeFilterTags.indexOf(chip.textContent.trim()) !== -1);
+    });
+  }
+  function removeFilterTag(tag){
+    var next = activeFilterTags.slice();
+    var idx = next.indexOf(tag);
+    if(idx !== -1) next.splice(idx, 1);
+    applyFilter(next);
+  }
+  function renderFilterBar(){
+    if(!activeFilterTags.length){ filterTagsEl.hidden = true; filterTagsEl.innerHTML = ''; return; }
+    filterTagsEl.hidden = false;
+    filterTagsEl.innerHTML = activeFilterTags.map(function(t){
+      return '<span class="filter-chip" data-tag="' + t.replace(/"/g,'&quot;') + '">' + t + ' ✕</span>';
+    }).join('') + (activeFilterTags.length > 1 ? '<span class="filter-clear" id="filterClearAll">全部清除</span>' : '');
+    filterTagsEl.querySelectorAll('.filter-chip').forEach(function(chip){
+      chip.addEventListener('click', function(){ removeFilterTag(chip.dataset.tag); });
+    });
+    var clearAll = document.getElementById('filterClearAll');
+    if(clearAll){ clearAll.addEventListener('click', function(){ applyFilter([]); }); }
+  }
+  function computeFilterStates(){
+    var wraps = Array.prototype.slice.call(document.querySelectorAll('.disc-wrap'));
+    return wraps.map(function(wrap){
+      var id = wrap.id.replace(/^wrap-/, '');
+      var d = currentData.filter(function(x){ return x.id === id; })[0];
+      var match = activeFilterTags.length === 0 || (d && d.tags.some(function(t){
+        return activeFilterTags.indexOf(t) !== -1;
+      }));
+      return {wrap: wrap, match: match};
+    });
+  }
+
+  function applyFilter(tags){
+    activeFilterTags = tags || [];
+    // a second tag clicked before the previous collapse finished would otherwise
+    // still fire on stale data — cancel it, the fresh collapse below supersedes it
+    if(pendingCollapseTimer){ clearTimeout(pendingCollapseTimer); pendingCollapseTimer = null; }
+    var states = computeFilterStates();
+
+    // reveal newly-matching CDs immediately — no compensating slide animation,
+    // they just take their spot in the row
+    states.forEach(function(s){
+      if(s.match && s.wrap.classList.contains('collapsed')){
+        s.wrap.classList.remove('collapsed');
+      }
+    });
+    states.forEach(function(s){
+      if(s.match){ s.wrap.classList.remove('filtered-out'); }
+      else { s.wrap.classList.add('filtered-out'); }
+    });
+
+    updateChipStates();
+    renderFilterBar();
+
+    // once the fade-out above finishes, drop the non-matches out of the flex row —
+    // otherwise a match further down a long roster still needs a long scroll to
+    // reach, since a merely-dimmed CD still takes up its full-width slot. No
+    // compensating slide here either — the remaining CDs just settle into place.
+    pendingCollapseTimer = setTimeout(function(){
+      pendingCollapseTimer = null;
+      // recompute against the *current* filter rather than trusting the snapshot
+      // from when this timeout was scheduled — a second tag click in the meantime
+      // may have changed which CDs should end up visible
+      var fresh = computeFilterStates();
+      fresh.forEach(function(s){
+        if(!s.match && s.wrap.classList.contains('filtered-out') && !s.wrap.classList.contains('collapsed')){
+          s.wrap.classList.add('collapsed');
+        }
+      });
+    }, 320);
+  }
+  stageInner.addEventListener('click', function(ev){
+    var chip = ev.target.closest('.disc-tags .tag-chip');
+    if(!chip) return;
+    var tag = chip.textContent.trim();
+    var idx = activeFilterTags.indexOf(tag);
+    var next = activeFilterTags.slice();
+    if(idx === -1) next.push(tag); else next.splice(idx, 1);
+    applyFilter(next);
+  });
+
+  // manual text input — type a tag and press Enter to add it to the filter
+  // (works even for tags typed slightly differently from how discs render them,
+  // since it's matched with the same exact comparison as clicking a chip)
+  var filterInput = document.getElementById('filterInput');
+  var tagSuggestions = document.getElementById('tagSuggestions');
+  function refreshTagSuggestions(){
+    var all = {};
+    currentData.forEach(function(d){ (d.tags||[]).forEach(function(t){ all[t] = true; }); });
+    tagSuggestions.innerHTML = Object.keys(all).sort().map(function(t){
+      return '<option value="' + t.replace(/"/g,'&quot;') + '">';
+    }).join('');
+  }
+  function addFilterFromInput(){
+    var tag = filterInput.value.trim();
+    if(!tag) return;
+    if(activeFilterTags.indexOf(tag) === -1){
+      applyFilter(activeFilterTags.concat([tag]));
+    }
+    filterInput.value = '';
+  }
+  filterInput.addEventListener('keydown', function(ev){
+    if(ev.key !== 'Enter') return;
+    // when typing with an IME (注音/拼音等), the first Enter just confirms the
+    // composed text rather than reaching us — ignore that one so it doesn't
+    // submit an incomplete tag; the real Enter fires right after with isComposing false.
+    if(ev.isComposing || ev.keyCode === 229) return;
+    ev.preventDefault();
+    addFilterFromInput();
+  });
+  document.getElementById('filterInputAdd').addEventListener('click', addFilterFromInput);
+
+  // ---- per-disc 3D drag rotation (grab the CD itself) + idle auto-spin ----
+  function attachDiscInteractions(){
+    document.querySelectorAll('.disc-3d').forEach(function(el){
+      var state = {ry:0, rx:-6};
+      var dragging = false, moved = 0, lastX=0, lastY=0, lastT=0, vel=0;
+      var idleTween = null;
+
+      // browsers vary in how reliably backface-visibility alone swaps the two
+      // faces during a live 3D rotation, so drive it explicitly from the angle.
+      // also sweeps the studio-light glare across the front face as it turns.
+      var sheenEl = el.querySelector('.disc-sheen');
+      function updateFace(ry){
+        var a = ((ry % 360) + 360) % 360;
+        el.classList.toggle('showing-back', a > 90 && a < 270);
+        if(sheenEl){
+          var pos = 50 + Math.sin(ry * Math.PI / 180) * 45;
+          sheenEl.style.backgroundPosition = pos + '% ' + pos + '%';
+        }
+      }
+
+      function startIdle(){
+        if(reduceMotion || !window.gsap) return;
+        if(idleTween) return; // already spinning — don't stack a second tween on top
+        idleTween = gsap.to(el, {
+          rotationY:"+=360",
+          duration:24 + Math.random()*10,
+          ease:"none",
+          repeat:-1,
+          onUpdate:function(){ updateFace(gsap.getProperty(el,"rotationY")); }
+        });
+      }
+      function killIdle(){ if(idleTween){ idleTween.kill(); idleTween = null; } }
+      if(window.gsap){ gsap.set(el, {transformPerspective:900, rotationX:state.rx}); }
+      updateFace(0);
+      startIdle();
+
+      // pause the idle spin for discs scrolled far off-screen so a roster of
+      // 100+ people doesn't keep animating dozens of CDs nobody can see —
+      // this is the main cost at scale, everything else here is cheap per-disc
+      if('IntersectionObserver' in window){
+        var offscreenObserver = new IntersectionObserver(function(entries){
+          entries.forEach(function(entry){
+            if(entry.isIntersecting){
+              if(!dragging) startIdle();
+            } else {
+              killIdle();
+            }
+          });
+        }, {root: rowViewport, rootMargin: '0px 500px', threshold: 0});
+        offscreenObserver.observe(el);
+      }
+
+      el.addEventListener('pointerdown', function(ev){
+        dragging = true; moved = 0;
+        lastX = ev.clientX; lastY = ev.clientY; lastT = performance.now();
+        el.setPointerCapture(ev.pointerId);
+        ev.stopPropagation(); // don't also start a row-drag
+        killIdle();
+        if(window.gsap) gsap.killTweensOf(el, "rotationY,rotationX");
+      });
+
+      el.addEventListener('pointermove', function(ev){
+        if(!dragging) return;
+        ev.stopPropagation();
+        var dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+        var now = performance.now();
+        var dt = Math.max(now - lastT, 8); // floor dt so a couple of very close events can't spike the reading
+        moved += Math.abs(dx) + Math.abs(dy);
+        state.ry += dx * 0.5;
+        state.rx = Math.max(-45, Math.min(45, state.rx - dy * 0.35));
+        var instVel = (dx / dt) * 16;
+        instVel = Math.max(-18, Math.min(18, instVel)); // clamp a single jumpy sample
+        vel = vel * 0.7 + instVel * 0.3; // smooth over several samples — a light flick shouldn't read as a hard spin
+        if(window.gsap){
+          gsap.set(el, {rotationY: state.ry, rotationX: state.rx});
+        } else {
+          el.style.transform = 'rotateY('+state.ry+'deg) rotateX('+state.rx+'deg)';
+        }
+        updateFace(state.ry);
+        lastX = ev.clientX; lastY = ev.clientY; lastT = now;
+      });
+
+      function endDrag(ev){
+        if(!dragging) return;
+        dragging = false;
+        try{ el.releasePointerCapture(ev.pointerId); }catch(e){}
+
+        if(moved < 6){
+          openPanel(el.dataset.id);
+        }
+
+        if(window.gsap){
+          var target = state.ry + vel * 6; // a real disc has inertial mass — a light flick shouldn't send it spinning far
+          gsap.to(el, {
+            rotationY: target,
+            rotationX: state.rx * 0.4,
+            duration: 1.7,
+            ease: "power2.out",
+            onUpdate: function(){
+              state.ry = gsap.getProperty(el, "rotationY");
+              state.rx = gsap.getProperty(el, "rotationX");
+              updateFace(state.ry);
+            },
+            onComplete: startIdle
+          });
+        }
+      }
+      el.addEventListener('pointerup', endDrag);
+      el.addEventListener('pointercancel', endDrag);
+    });
+  }
+
+  // ---- drag the empty background to move the whole row (desktop mouse; touch uses native scroll) ----
+  var rowViewport = document.getElementById('rowViewport');
+  (function(){
+    var isDown = false, startX = 0, startScroll = 0, lastX = 0, lastT = 0, vel = 0, moved = 0, raf = null;
+
+    rowViewport.addEventListener('pointerdown', function(ev){
+      if(ev.pointerType !== 'mouse') return; // let touch/trackpad use native scrolling
+      if(ev.target.closest('.disc-3d')) return; // dragging a CD itself rotates it, not the row
+      if(ev.target.closest('.tag-chip')) return; // clicking a tag chip filters, not drags the row
+      isDown = true; moved = 0;
+      startX = ev.clientX; startScroll = rowViewport.scrollLeft;
+      lastX = ev.clientX; lastT = performance.now();
+      rowViewport.classList.add('dragging');
+      rowViewport.setPointerCapture(ev.pointerId);
+      cancelAnimationFrame(raf);
+    });
+
+    rowViewport.addEventListener('pointermove', function(ev){
+      if(!isDown) return;
+      var dx = ev.clientX - startX;
+      moved += Math.abs(ev.clientX - lastX);
+      rowViewport.scrollLeft = startScroll - dx;
+      var now = performance.now();
+      var dt = Math.max(now - lastT, 8); // floor dt so a couple of very close events can't spike the reading
+      var instVel = (ev.clientX - lastX) / dt;
+      instVel = Math.max(-3.5, Math.min(3.5, instVel)); // clamp a single jumpy sample, but leave room for a real hard swipe to register
+      vel = vel * 0.7 + instVel * 0.3; // smooth over several samples instead of trusting the last one
+      lastX = ev.clientX; lastT = now;
+    });
+
+    // after the drag/inertia settles, ease the nearest CD to the horizontal
+    // center of the viewport so browsing always ends on a centered disc
+    function snapToNearest(){
+      var items = document.querySelectorAll('.disc-wrap');
+      if(!items.length) return;
+      var vpRect = rowViewport.getBoundingClientRect();
+      var vpCenter = vpRect.left + vpRect.width / 2;
+      var closestDist = Infinity, closestCenter = 0;
+      items.forEach(function(el){
+        var r = el.getBoundingClientRect();
+        var center = r.left + r.width / 2;
+        var dist = Math.abs(center - vpCenter);
+        if(dist < closestDist){ closestDist = dist; closestCenter = center; }
+      });
+      var target = rowViewport.scrollLeft + (closestCenter - vpCenter);
+      target = Math.max(0, Math.min(target, rowViewport.scrollWidth - rowViewport.clientWidth));
+      if(window.gsap){
+        gsap.to(rowViewport, {scrollLeft: target, duration: 0.6, ease: "power3.out"});
+      } else if(!reduceMotion){
+        rowViewport.scrollTo({left: target, behavior: 'smooth'});
+      } else {
+        rowViewport.scrollLeft = target;
+      }
+    }
+
+    function endDrag(ev){
+      if(!isDown) return;
+      isDown = false;
+      rowViewport.classList.remove('dragging');
+      try{ rowViewport.releasePointerCapture(ev.pointerId); }catch(e){}
+
+      function step(){
+        rowViewport.scrollLeft -= vel * 16;
+        vel *= 0.94;
+        if(Math.abs(vel) > 0.02){
+          raf = requestAnimationFrame(step);
+        } else {
+          snapToNearest();
+        }
+      }
+      raf = requestAnimationFrame(step);
+    }
+    rowViewport.addEventListener('pointerup', endDrag);
+    rowViewport.addEventListener('pointercancel', endDrag);
+    rowViewport.addEventListener('pointerleave', function(ev){ if(isDown) endDrag(ev); });
+  })();
+
+  // ---- detail panel ----
+  var panel = document.getElementById('panel');
+  var backdrop = document.getElementById('backdrop');
+  var selectedWrapId = null;
+  function setSelected(id){
+    if(selectedWrapId){
+      var prev = document.getElementById('wrap-' + selectedWrapId);
+      if(prev) prev.classList.remove('selected');
+    }
+    selectedWrapId = id;
+    if(id){
+      var next = document.getElementById('wrap-' + id);
+      if(next) next.classList.add('selected');
+    }
+  }
+  function openPanel(id){
+    var d = currentData.filter(function(x){return x.id===id;})[0];
+    if(!d) return;
+    document.getElementById('pName').textContent = d.name;
+    document.getElementById('pTags').innerHTML = d.tags.slice(0,5).map(function(t){
+      return '<span class="tag-chip">'+t+'</span>';
+    }).join('');
+    document.getElementById('pBio').textContent = d.bio || '';
+    document.getElementById('pBio').hidden = !d.bio;
+    var ctas = '';
+    if(d.linkedin){
+      ctas += '<a class="cta" href="'+d.linkedin+'" target="_blank" rel="noopener">看 LinkedIn 檔案 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
+    }
+    if(d.portfolio){
+      ctas += '<a class="cta" href="'+d.portfolio+'" target="_blank" rel="noopener">看作品集 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
+    }
+    document.getElementById('pCtas').innerHTML = ctas;
+    panel.classList.add('open');
+    backdrop.classList.add('open');
+    setSelected(id);
+    var wrap = document.getElementById('wrap-'+id);
+    if(wrap){
+      wrap.classList.add('pulse');
+      setTimeout(function(){ wrap.classList.remove('pulse'); }, 1300);
+      if(wrap.scrollIntoView){
+        wrap.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
+      }
+    }
+  }
+  function closePanel(){
+    panel.classList.remove('open');
+    backdrop.classList.remove('open');
+    setSelected(null);
+  }
+  document.getElementById('panelClose').addEventListener('click', closePanel);
+  backdrop.addEventListener('click', closePanel);
+
+  // ---- index overlay ----
+  var overlay = document.getElementById('indexOverlay');
+  document.getElementById('indexBtn').addEventListener('click', function(){
+    overlay.classList.add('open');
+    document.getElementById('search').focus();
+  });
+  document.getElementById('closeIndex').addEventListener('click', function(){ overlay.classList.remove('open'); });
+  document.addEventListener('keydown', function(ev){
+    if(ev.key === 'Escape'){
+      overlay.classList.remove('open');
+      closePanel();
+      var so = document.getElementById('submitOverlay');
+      if(so) so.classList.remove('open');
+    }
+  });
+
+  indexList.addEventListener('click', function(ev){
+    var item = ev.target.closest('.index-item');
+    if(!item) return;
+    overlay.classList.remove('open');
+    var id = item.dataset.target;
+    var wrap = document.getElementById('wrap-'+id);
+    if(wrap && wrap.scrollIntoView) wrap.scrollIntoView({behavior:'smooth', block:'center', inline:'center'});
+    setTimeout(function(){ openPanel(id); }, 250);
+  });
+
+  document.getElementById('search').addEventListener('input', function(ev){
+    var q = ev.target.value.trim().toLowerCase();
+    var shown = 0;
+    document.querySelectorAll('.index-item').forEach(function(a){
+      var match = q === '' || (a.dataset.search||'').indexOf(q) !== -1;
+      a.hidden = !match;
+      if(match) shown++;
+    });
+    var countEl = document.getElementById('indexCount');
+    if(countEl){
+      countEl.textContent = q === ''
+        ? '共 ' + currentData.length + ' 位同學'
+        : '符合 ' + shown + ' 位';
+    }
+  });
+
+  // ---- add / edit submission modal (Supabase-backed) ----
+  (function(){
+    var submitBtn = document.getElementById('submitBtn');
+    var submitOverlay = document.getElementById('submitOverlay');
+    var newForm = document.getElementById('newForm');
+    var lookupForm = document.getElementById('lookupForm');
+    var editForm = document.getElementById('editForm');
+    var editingId = null;
+
+    if(!sbClient){
+      // no Supabase configured yet — hide the button rather than show a form that can't submit
+      submitBtn.style.display = 'none';
+      return;
+    }
+
+    function setMsg(el, text, kind){
+      el.textContent = text;
+      el.className = 'submit-msg' + (kind ? ' ' + kind : '');
+    }
+    function collectTags(str){
+      return (str||'').split(/[,，、]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0,5);
+    }
+    function uploadPhoto(file){
+      if(!file) return Promise.resolve('');
+      var ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+      var path = Date.now() + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
+      return sbClient.storage.from('photos').upload(path, file, {cacheControl:'3600', upsert:false})
+        .then(function(up){
+          if(up.error) throw up.error;
+          var pub = sbClient.storage.from('photos').getPublicUrl(path);
+          return pub.data.publicUrl;
+        });
+    }
+
+    submitBtn.addEventListener('click', function(){ submitOverlay.classList.add('open'); });
+    document.getElementById('closeSubmit').addEventListener('click', function(){ submitOverlay.classList.remove('open'); });
+
+    document.querySelectorAll('.submit-tab').forEach(function(tab){
+      tab.addEventListener('click', function(){
+        document.querySelectorAll('.submit-tab').forEach(function(t){ t.classList.remove('active'); });
+        tab.classList.add('active');
+        var mode = tab.dataset.mode;
+        newForm.hidden = mode !== 'new';
+        lookupForm.hidden = mode !== 'edit';
+        editForm.hidden = true;
+      });
+    });
+
+    newForm.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      var msg = document.getElementById('newMsg');
+      var btn = newForm.querySelector('button[type=submit]');
+      var name = document.getElementById('nName').value.trim();
+      var email = document.getElementById('nEmail').value.trim().toLowerCase();
+      var pin = document.getElementById('nPin').value.trim();
+      if(!name || !email || !pin){ setMsg(msg, '姓名、Email、編輯密碼為必填。', 'err'); return; }
+      var linkedin = document.getElementById('nLinkedin').value.trim();
+      var portfolio = document.getElementById('nPortfolio').value.trim();
+      var bio = document.getElementById('nBio').value.trim();
+      var tags = collectTags(document.getElementById('nTags').value);
+      var file = document.getElementById('nPhoto').files[0];
+
+      btn.disabled = true;
+      setMsg(msg, '送出中...', '');
+      uploadPhoto(file).then(function(photoUrl){
+        return sbClient.from('students').insert({
+          name:name, email:email, edit_pin:pin,
+          tags:tags, bio:bio, linkedin:linkedin, portfolio:portfolio,
+          photo_url:photoUrl
+        });
+      }).then(function(res){
+        btn.disabled = false;
+        if(res.error){
+          if(/duplicate|unique/i.test(res.error.message || '')){
+            setMsg(msg, '這個 Email 已經提交過資料了，請改用上方「修改已提交的資料」。', 'err');
+          } else {
+            setMsg(msg, '送出失敗：' + res.error.message, 'err');
+          }
+          return;
+        }
+        setMsg(msg, '已加入成功！關閉這個視窗就會看到你的 CD 出現在頁面上。', 'ok');
+        newForm.reset();
+        loadFromSupabase();
+      }).catch(function(err){
+        btn.disabled = false;
+        setMsg(msg, '上傳失敗：' + (err && err.message || err), 'err');
+      });
+    });
+
+    lookupForm.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      var msg = document.getElementById('lookupMsg');
+      var email = document.getElementById('lookupEmail').value.trim().toLowerCase();
+      var pin = document.getElementById('lookupPin').value.trim();
+      setMsg(msg, '查詢中...', '');
+      sbClient.rpc('verify_student_login', {p_email:email, p_pin:pin}).then(function(res){
+        if(res.error){ setMsg(msg, '查詢失敗：' + res.error.message, 'err'); return; }
+        var rows = res.data || [];
+        if(!rows.length){ setMsg(msg, '查無資料，請確認 Email 與編輯密碼是否正確。', 'err'); return; }
+        var d = rows[0];
+        editingId = d.id;
+        document.getElementById('eName').value = d.name || '';
+        document.getElementById('eLinkedin').value = d.linkedin || '';
+        document.getElementById('ePortfolio').value = d.portfolio || '';
+        document.getElementById('eBio').value = d.bio || '';
+        document.getElementById('eTags').value = (d.tags || []).join('、');
+        lookupForm.hidden = true;
+        editForm.hidden = false;
+        setMsg(msg, '', '');
+      }).catch(function(err){ setMsg(msg, '查詢失敗：' + (err && err.message || err), 'err'); });
+    });
+
+    editForm.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      if(!editingId) return;
+      var msg = document.getElementById('editMsg');
+      var btn = editForm.querySelector('button[type=submit]');
+      var name = document.getElementById('eName').value.trim();
+      var linkedin = document.getElementById('eLinkedin').value.trim();
+      var portfolio = document.getElementById('ePortfolio').value.trim();
+      var bio = document.getElementById('eBio').value.trim();
+      var tags = collectTags(document.getElementById('eTags').value);
+      var file = document.getElementById('ePhoto').files[0];
+
+      btn.disabled = true;
+      setMsg(msg, '更新中...', '');
+      uploadPhoto(file).then(function(photoUrl){
+        var patch = {name:name, linkedin:linkedin, portfolio:portfolio, bio:bio, tags:tags};
+        if(photoUrl) patch.photo_url = photoUrl;
+        return sbClient.from('students').update(patch).eq('id', editingId);
+      }).then(function(res){
+        btn.disabled = false;
+        if(res.error){ setMsg(msg, '更新失敗：' + res.error.message, 'err'); return; }
+        setMsg(msg, '已更新！', 'ok');
+        loadFromSupabase();
+      }).catch(function(err){
+        btn.disabled = false;
+        setMsg(msg, '更新失敗：' + (err && err.message || err), 'err');
+      });
+    });
+
+    document.getElementById('editCancel').addEventListener('click', function(){
+      editForm.hidden = true;
+      lookupForm.hidden = false;
+      editingId = null;
+    });
+  })();
+
+  // ---- boot: show the demo roster immediately, then swap in the live data source if configured ----
+  renderRoster(shuffleRoster(DEMO_DATA));
+  if(sbClient){
+    loadFromSupabase();
+  } else if(SHEET_CSV_URL){
+    fetch(SHEET_CSV_URL)
+      .then(function(res){ if(!res.ok) throw new Error('sheet fetch failed'); return res.text(); })
+      .then(function(text){
+        var roster = csvToRoster(text);
+        if(roster.length) renderRoster(shuffleRoster(roster));
+      })
+      .catch(function(err){
+        console.warn('同學錄：讀取 Google Sheet 失敗，暫時顯示範例資料。', err);
+      });
+  }
+})();
+</script>
