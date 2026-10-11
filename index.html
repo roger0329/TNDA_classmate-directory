@@ -386,6 +386,13 @@
     color:var(--text);padding:9px 12px;outline:none;margin-top:-8px;
   }
   .tag-custom-input:focus{border-color:var(--text);}
+  .links-editor{display:flex;flex-direction:column;gap:8px;}
+  .links-editor-title{font-size:0.76rem;letter-spacing:0.04em;color:var(--muted);}
+  .link-row{display:grid;grid-template-columns:1fr 1.6fr auto;gap:6px;align-items:center;}
+  .link-row input{min-width:0;padding:9px 10px;}
+  .link-row .link-del{font-size:1rem;line-height:1;color:var(--muted);padding:6px 8px;border:1px solid var(--line);background:var(--surface);cursor:pointer;}
+  .link-row .link-del:hover{color:var(--text);border-color:var(--text);}
+  @media(max-width:520px){.link-row{grid-template-columns:1fr auto;}.link-row input.link-url{grid-column:1 / 2;}}
   .photo-adjust-wrap{display:flex;flex-direction:column;gap:8px;align-items:flex-start;margin-top:-6px;}
   .photo-adjust{
     position:relative;
@@ -510,6 +517,8 @@
       </div>
       <label>LinkedIn 連結<input id="nLinkedin" type="text" placeholder="www.linkedin.com/in/..."></label>
       <label>作品集連結<input id="nPortfolio" type="text" placeholder="你的作品集網址"></label>
+      <div class="links-editor"><span class="links-editor-title">其他連結 <span class="submit-hint">(選填，最多 5 個，可自訂名稱，例如 Instagram、Behance、個人網站)</span></span><div id="nLinks"></div></div>
+      <button type="button" class="text-btn" id="nLinksAdd" style="align-self:flex-start;">＋ 新增一個連結</button>
       <label>一句話介紹自己<textarea id="nBio" maxlength="120"></textarea></label>
       <label>標籤 <span class="submit-hint">(最多 5 個，點選下面的標籤，或輸入自己的)</span><input id="nTags" type="text" readonly tabindex="-1"></label>
       <div class="tag-picker" id="nTagPicker"></div>
@@ -537,9 +546,12 @@
 
     <form class="submit-form" id="editForm" hidden>
       <label>姓名 *<input id="eName" type="text" required maxlength="30"></label>
+      <label>設定新密碼 <span class="submit-hint">(選填，留空就維持原本的密碼)</span><input id="eNewPin" type="password" maxlength="20"></label>
       <label>Email <span class="submit-hint">(選填，會公開顯示)</span><input id="eEmail" type="email"></label>
       <label>LinkedIn 連結<input id="eLinkedin" type="text"></label>
       <label>作品集連結<input id="ePortfolio" type="text"></label>
+      <div class="links-editor"><span class="links-editor-title">其他連結 <span class="submit-hint">(選填，最多 5 個，可自訂名稱，例如 Instagram、Behance、個人網站)</span></span><div id="eLinks"></div></div>
+      <button type="button" class="text-btn" id="eLinksAdd" style="align-self:flex-start;">＋ 新增一個連結</button>
       <label>一句話介紹自己<textarea id="eBio" maxlength="120"></textarea></label>
       <label>標籤 <span class="submit-hint">(最多 5 個，點選下面的標籤，或輸入自己的)</span><input id="eTags" type="text" readonly tabindex="-1"></label>
       <div class="tag-picker" id="eTagPicker"></div>
@@ -721,6 +733,7 @@
             bio: r.bio || '',
             linkedin: r.linkedin || '',
             portfolio: r.portfolio || '',
+            links: Array.isArray(r.links) ? r.links : [],
             email: r.email || '',
             photoPos: r.photo_pos || '50% 50%'
           };
@@ -1151,6 +1164,11 @@
     if(safePortfolio){
       ctas += '<a class="cta" href="'+escapeHtml(safePortfolio)+'" target="_blank" rel="noopener">看作品集 <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
     }
+    (d.links || []).slice(0,5).forEach(function(l){
+      var href = l && safeHref(l.url);
+      if(!href) return;
+      ctas += '<a class="cta" href="'+escapeHtml(href)+'" target="_blank" rel="noopener">'+escapeHtml(String(l.label || '連結').slice(0,20))+' <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></a>';
+    });
     document.getElementById('pCtas').innerHTML = ctas;
     panel.classList.add('open');
     backdrop.classList.add('open');
@@ -1320,6 +1338,47 @@
       }
       return v;
     }
+    // 自訂連結：每筆 {label, url}，最多 5 筆，名稱由同學自己取
+    var MAX_LINKS = 5;
+    function initLinksEditor(listEl, addBtn){
+      function addRow(label, url){
+        if(listEl.children.length >= MAX_LINKS) return;
+        var row = document.createElement('div');
+        row.className = 'link-row';
+        row.innerHTML = '<input type="text" class="link-label" maxlength="20" placeholder="連結名稱，例如 Instagram">' +
+          '<input type="text" class="link-url" placeholder="網址">' +
+          '<button type="button" class="link-del" aria-label="移除這個連結">×</button>';
+        row.querySelector('.link-label').value = label || '';
+        row.querySelector('.link-url').value = url || '';
+        row.querySelector('.link-del').addEventListener('click', function(){ row.remove(); sync(); });
+        listEl.appendChild(row);
+        sync();
+      }
+      function sync(){ addBtn.hidden = listEl.children.length >= MAX_LINKS; }
+      addBtn.addEventListener('click', function(){ addRow('', ''); });
+      return {
+        get: function(){
+          var out = [];
+          Array.prototype.forEach.call(listEl.children, function(row){
+            var url = normalizeUrl(row.querySelector('.link-url').value);
+            var label = row.querySelector('.link-label').value.trim().slice(0,20);
+            if(!url) return;
+            out.push({label: label || '連結', url: url});
+          });
+          return out.slice(0, MAX_LINKS);
+        },
+        set: function(arr){
+          listEl.innerHTML = '';
+          (Array.isArray(arr) ? arr : []).slice(0, MAX_LINKS).forEach(function(l){
+            if(l && l.url) addRow(l.label || '', l.url);
+          });
+          sync();
+        },
+        reset: function(){ listEl.innerHTML = ''; sync(); }
+      };
+    }
+    var nLinksEd = initLinksEditor(document.getElementById('nLinks'), document.getElementById('nLinksAdd'));
+    var eLinksEd = initLinksEditor(document.getElementById('eLinks'), document.getElementById('eLinksAdd'));
     var MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
     function uploadPhoto(file){
       if(!file) return Promise.resolve('');
@@ -1473,6 +1532,7 @@
         return sbClient.from('students').insert({
           name:name, email:(email || null), edit_pin:pin,
           tags:tags, bio:bio, linkedin:linkedin, portfolio:portfolio,
+          links:nLinksEd.get(),
           photo_url:photoUrl,
           photo_pos: photoUrl ? (nPhotoPos.x + '% ' + nPhotoPos.y + '%') : '50% 50%'
         });
@@ -1489,6 +1549,7 @@
         setMsg(msg, '已加入成功！關閉這個視窗就會看到你的 CD 出現在頁面上。', 'ok');
         newForm.reset();
         nPhotoAdjust.reset();
+        nLinksEd.reset();
         nTagPicker.render();
         loadFromSupabase();
       }).catch(function(err){
@@ -1514,6 +1575,7 @@
         document.getElementById('eEmail').value = d.email || '';
         document.getElementById('eLinkedin').value = d.linkedin || '';
         document.getElementById('ePortfolio').value = d.portfolio || '';
+        eLinksEd.set(d.links);
         document.getElementById('eBio').value = d.bio || '';
         document.getElementById('eTags').value = (d.tags || []).join('、');
         eTagPicker.render();
@@ -1531,6 +1593,7 @@
       var msg = document.getElementById('editMsg');
       var btn = editForm.querySelector('button[type=submit]');
       var name = document.getElementById('eName').value.trim();
+      var newPin = document.getElementById('eNewPin').value.trim();
       var email = document.getElementById('eEmail').value.trim().toLowerCase();
       var linkedin = normalizeUrl(document.getElementById('eLinkedin').value);
       var portfolio = normalizeUrl(document.getElementById('ePortfolio').value);
@@ -1543,7 +1606,8 @@
       var uploadedPhotoUrl = '';
       uploadPhoto(file).then(function(photoUrl){
         uploadedPhotoUrl = photoUrl;
-        var patch = {name:name, email:(email || null), linkedin:linkedin, portfolio:portfolio, bio:bio, tags:tags};
+        var patch = {name:name, email:(email || null), linkedin:linkedin, portfolio:portfolio, links:eLinksEd.get(), bio:bio, tags:tags};
+        if(newPin){ patch.edit_pin = newPin; }
         // send the adjusted position whenever a photo is involved — either a
         // freshly uploaded one, or the existing one the student just dragged
         if(photoUrl){ patch.photo_url = photoUrl; }
@@ -1561,7 +1625,8 @@
         }
         // only once the new row is safely saved — remove the photo it replaced
         if(uploadedPhotoUrl){ deleteOldPhoto(editingOldPhotoUrl, uploadedPhotoUrl); }
-        setMsg(msg, '已更新！', 'ok');
+        document.getElementById('eNewPin').value = '';
+        setMsg(msg, newPin ? '已更新！密碼也改好了，下次查詢要用新密碼。' : '已更新！', 'ok');
         loadFromSupabase();
       }).catch(function(err){
         btn.disabled = false;
@@ -1575,6 +1640,7 @@
       editingId = null;
       editingOldPhotoUrl = '';
       ePhotoAdjust.reset();
+      eLinksEd.reset();
       editForm.reset();
       eTagPicker.render();
     });
@@ -1609,6 +1675,7 @@
         editingId = null;
         editingOldPhotoUrl = '';
         ePhotoAdjust.reset();
+        eLinksEd.reset();
         editForm.reset();
         eTagPicker.render();
         var lookupMsg = document.getElementById('lookupMsg');
