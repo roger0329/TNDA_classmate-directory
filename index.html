@@ -243,8 +243,15 @@
     padding:0 12px;cursor:pointer;
   }
   .filter-input-add:hover{background:var(--text);color:var(--bg);border-color:var(--text);}
-  @media (max-width:900px){ .filter-input{width:90px;} }
-  @media (max-width:640px){ .filter-input-wrap{display:none;} }
+  .name-search{
+    font-family:"Noto Sans TC",sans-serif;font-size:0.76rem;
+    background:var(--surface);border:1px solid var(--line);color:var(--text);
+    padding:7px 10px;width:130px;outline:none;
+  }
+  .name-search:focus{border-color:var(--text);}
+  .name-search::placeholder{color:var(--muted);}
+  @media (max-width:900px){ .filter-input{width:90px;} .name-search{width:100px;} }
+  @media (max-width:640px){ .filter-input-wrap{display:none;} .name-search{width:96px;} }
 
   /* a hollow ring (transparent center, transparent beyond) rather than a filled
      glow — the inside is already empty before it even starts moving, so as it
@@ -463,6 +470,7 @@
   <div class="wordmark">同學錄</div>
   <div style="display:flex;gap:14px;align-items:center;">
     <div class="filter-tags" id="filterTags" hidden></div>
+    <input type="text" id="nameSearch" class="name-search" placeholder="搜尋姓名" aria-label="搜尋姓名" autocomplete="off">
     <div class="filter-input-wrap">
       <input type="text" id="filterInput" class="filter-input" list="tagSuggestions" placeholder="輸入標籤篩選">
       <button type="button" class="filter-input-add" id="filterInputAdd" aria-label="加入篩選">+</button>
@@ -871,6 +879,7 @@
   // that share at least one of the selected tags. Click a selected tag again
   // (or the "clear filter" pill) to remove it / clear all. ----
   var activeFilterTags = [];
+  var activeNameQuery = ''; // 首頁姓名搜尋(小寫)，跟標籤篩選同時生效
   var pendingCollapseTimer = null;
   var filterTagsEl = document.getElementById('filterTags');
   function updateChipStates(){
@@ -901,9 +910,11 @@
     return wraps.map(function(wrap){
       var id = wrap.id.replace(/^wrap-/, '');
       var d = currentData.filter(function(x){ return x.id === id; })[0];
-      var match = activeFilterTags.length === 0 || (d && d.tags.some(function(t){
+      var tagMatch = activeFilterTags.length === 0 || (d && d.tags.some(function(t){
         return activeFilterTags.indexOf(t) !== -1;
       }));
+      var nameMatch = activeNameQuery === '' || (d && (d.name||'').toLowerCase().indexOf(activeNameQuery) !== -1);
+      var match = !!(tagMatch && nameMatch);
       return {wrap: wrap, match: match};
     });
   }
@@ -956,6 +967,20 @@
     if(idx === -1) next.push(tag); else next.splice(idx, 1);
     applyFilter(next);
   });
+
+  // 首頁姓名搜尋：邊打邊篩，跟標籤篩選同時生效；注音/拼音輸入法組字中先不動，組完字再篩
+  var nameSearchEl = document.getElementById('nameSearch');
+  function runNameSearch(){
+    var q = nameSearchEl.value.trim().toLowerCase();
+    if(q === activeNameQuery) return;
+    activeNameQuery = q;
+    applyFilter(activeFilterTags);
+    var vp = document.querySelector('.row-viewport');
+    if(vp) vp.scrollTo({left:0, behavior:'smooth'});
+  }
+  nameSearchEl.addEventListener('input', function(ev){ if(ev.isComposing) return; runNameSearch(); });
+  nameSearchEl.addEventListener('compositionend', runNameSearch);
+  nameSearchEl.addEventListener('keydown', function(ev){ if(ev.key === 'Escape'){ nameSearchEl.value = ''; runNameSearch(); nameSearchEl.blur(); } });
 
   // manual text input — type a tag and press Enter to add it to the filter
   // (works even for tags typed slightly differently from how discs render them,
