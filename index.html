@@ -34,6 +34,9 @@
   .wordmark{font-family:"Noto Sans TC",sans-serif;font-weight:100;font-size:1.15rem;letter-spacing:0.14em;}
   .nav-link{font-size:0.76rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--text);padding:6px 2px;position:relative;border:1px solid var(--line);padding:6px 14px;}
   .nav-link:hover{background:var(--text);color:var(--bg);}
+  .nav-link.active{background:var(--text);color:var(--bg);}
+  body.eco .disc-sheen{display:none;}
+  @media (max-width:760px){ #ecoBtn{display:none;} }
 
   /* ---------------- stage: horizontal draggable row ---------------- */
   .stage{
@@ -483,6 +486,7 @@
       <button type="button" class="filter-input-add" id="filterInputAdd" aria-label="加入篩選">+</button>
     </div>
     <datalist id="tagSuggestions"></datalist>
+    <button class="nav-link" id="ecoBtn" type="button" aria-pressed="false" title="讓所有 CD 停止自轉，電腦比較不會卡（例如同時開 Google Meet 時）">省電模式</button>
     <button class="nav-link" id="submitBtn">＋ 加入我的資料</button>
     <button class="nav-link" id="indexBtn">Index</button>
   </div>
@@ -637,6 +641,9 @@
   var stageInner = document.getElementById('stageInner');
   var indexList = document.getElementById('indexList');
   var currentData = [];
+  // 省電模式：所有 CD 停止自轉(拖曳時仍可轉)；設定會記在這台瀏覽器
+  var ecoMode = false;
+  try{ ecoMode = localStorage.getItem('classmateEco') === '1'; }catch(e){}
 
   // Every student field (name, tags, bio, links, photo URL...) is untrusted
   // input — anyone with the public anon key can write to the database
@@ -1022,6 +1029,21 @@
 
   // ---- per-disc 3D drag rotation (grab the CD itself) + idle auto-spin ----
   if(window.gsap){ gsap.ticker.fps(30); }
+  var ecoBtn = document.getElementById('ecoBtn');
+  function applyEco(on, persist){
+    ecoMode = !!on;
+    document.body.classList.toggle('eco', ecoMode);
+    ecoBtn.classList.toggle('active', ecoMode);
+    ecoBtn.setAttribute('aria-pressed', ecoMode ? 'true' : 'false');
+    ecoBtn.textContent = ecoMode ? '省電模式：開' : '省電模式';
+    document.querySelectorAll('.disc-3d').forEach(function(el){
+      if(ecoMode){ if(el.__settleFront) el.__settleFront(); }
+      else if(el.__startIdle && el.__visible){ el.__startIdle(); }
+    });
+    if(persist){ try{ localStorage.setItem('classmateEco', ecoMode ? '1' : '0'); }catch(e){} }
+  }
+  ecoBtn.addEventListener('click', function(){ applyEco(!ecoMode, true); });
+  if(ecoMode){ applyEco(true, false); }
   function attachDiscInteractions(){
     document.querySelectorAll('.disc-3d').forEach(function(el){
       var state = {ry:0, rx:-6};
@@ -1046,7 +1068,7 @@
       }
 
       function startIdle(){
-        if(reduceMotion || !window.gsap) return;
+        if(reduceMotion || ecoMode || !window.gsap) return;
         if(idleTween) return; // already spinning — don't stack a second tween on top
         el.classList.add('spin-active');
         idleTween = gsap.to(el, {
@@ -1061,6 +1083,19 @@
       if(window.gsap){ gsap.set(el, {transformPerspective:900, rotationX:state.rx}); }
       updateFace(0);
       startIdle();
+      el.__startIdle = startIdle;
+      el.__killIdle = killIdle;
+      el.__visible = true;
+      el.__settleFront = function(){
+        // 進入省電模式：停止自轉，轉回正面(照片面朝前)，介紹照片最清楚
+        killIdle();
+        if(!window.gsap) return;
+        gsap.killTweensOf(el, "rotationY,rotationX");
+        var cur = gsap.getProperty(el, "rotationY");
+        gsap.to(el, {rotationY: Math.round(cur/360)*360, rotationX: -6, duration:.6, ease:"power2.out",
+          onUpdate:function(){ updateFace(gsap.getProperty(el,"rotationY")); },
+          onComplete:function(){ state.ry = gsap.getProperty(el,"rotationY"); state.rx = -6; }});
+      };
 
       // pause the idle spin for discs scrolled far off-screen so a roster of
       // 100+ people doesn't keep animating dozens of CDs nobody can see —
@@ -1068,6 +1103,7 @@
       if('IntersectionObserver' in window){
         var offscreenObserver = new IntersectionObserver(function(entries){
           entries.forEach(function(entry){
+            el.__visible = entry.isIntersecting;
             if(entry.isIntersecting){
               if(!dragging) startIdle();
             } else {
@@ -1084,7 +1120,11 @@
         el.setPointerCapture(ev.pointerId);
         ev.stopPropagation(); // don't also start a row-drag
         killIdle();
-        if(window.gsap) gsap.killTweensOf(el, "rotationY,rotationX");
+        if(window.gsap){
+          gsap.killTweensOf(el, "rotationY,rotationX");
+          state.ry = gsap.getProperty(el, "rotationY");
+          state.rx = gsap.getProperty(el, "rotationX");
+        }
       });
 
       el.addEventListener('pointermove', function(ev){
