@@ -70,13 +70,22 @@
 
   /* ---------------- disc column ---------------- */
   .disc-wrap{
+    --size:clamp(240px, 46vh, 520px);
     display:flex;flex-direction:column;align-items:center;gap:14px;
     flex:0 0 auto;
+    position:relative;isolation:isolate;
+  }
+  /* 地面陰影：原本是 filter:drop-shadow 跟著旋轉的 CD 一起即時重算，
+     CD 一多就很吃效能；改成固定不動的柔和橢圓陰影，看起來接近、但輕很多 */
+  .disc-wrap::before{
+    content:"";position:absolute;left:50%;top:calc(var(--size) - 6px);
+    width:calc(var(--size) * 0.7);height:20px;transform:translateX(-50%);
+    background:radial-gradient(ellipse at center, rgba(10,10,10,0.26), rgba(10,10,10,0) 70%);
+    z-index:-1;pointer-events:none;
   }
 
   /* proportions follow a real 120mm CD: 15mm spindle hole, ~46mm hub/label edge, ~116mm data edge */
   .disc-3d{
-    --size:clamp(240px, 46vh, 520px);
     width:var(--size);height:var(--size);
     border-radius:50%;
     position:relative;
@@ -84,11 +93,9 @@
     -webkit-transform-style:preserve-3d;
     cursor:grab;
     touch-action:none;
-    filter:drop-shadow(0 6px 10px rgba(10,10,10,0.28));
-    transition:filter .3s ease;
   }
+  .disc-3d.spin-active{will-change:transform;}
   .disc-3d:active{cursor:grabbing;}
-  .disc-wrap:hover .disc-3d{filter:drop-shadow(0 9px 14px rgba(10,10,10,0.32));}
 
   /* two physical faces of the disc, back-to-back — like a real CD: label side (photo) vs data side (grooves) */
   /* which face paints is driven entirely by JS (see updateFace) rather than
@@ -143,8 +150,7 @@
      grooves (that read as too harsh over a face/photo) */
   .disc-texture{
     position:absolute;inset:0;border-radius:50%;
-    background:repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,0.045) 0 1px, rgba(255,255,255,0.05) 1px 2px, transparent 2px 9px);
-    mix-blend-mode:soft-light;
+    background:repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,0.03) 0 1px, rgba(255,255,255,0.03) 1px 2px, transparent 2px 9px);
     opacity:0.5;
     pointer-events:none;
   }
@@ -155,19 +161,17 @@
     background:linear-gradient(115deg,
       transparent 15%,
       rgba(255,255,255,0.04) 30%,
-      rgba(255,255,255,0.38) 46%,
-      rgba(255,255,255,0.08) 58%,
+      rgba(255,255,255,0.24) 46%,
+      rgba(255,255,255,0.06) 58%,
       transparent 78%);
     background-size:230% 230%;
     background-position:50% 50%;
-    mix-blend-mode:soft-light;
     pointer-events:none;
   }
   /* darkened falloff toward the rim, like light rolling off a curved reflective surface */
   .disc-vignette{
     position:absolute;inset:0;border-radius:50%;
     background:radial-gradient(circle, transparent 70%, rgba(0,0,0,0.14) 97%, rgba(0,0,0,0.22) 100%);
-    mix-blend-mode:multiply;
     pointer-events:none;
   }
   /* back / data side: the original concentric-groove look */
@@ -1017,6 +1021,7 @@
   document.getElementById('filterInputAdd').addEventListener('click', addFilterFromInput);
 
   // ---- per-disc 3D drag rotation (grab the CD itself) + idle auto-spin ----
+  if(window.gsap){ gsap.ticker.fps(30); }
   function attachDiscInteractions(){
     document.querySelectorAll('.disc-3d').forEach(function(el){
       var state = {ry:0, rx:-6};
@@ -1027,10 +1032,14 @@
       // faces during a live 3D rotation, so drive it explicitly from the angle.
       // also sweeps the studio-light glare across the front face as it turns.
       var sheenEl = el.querySelector('.disc-sheen');
+      var lastSheenRy = -999;
       function updateFace(ry){
         var a = ((ry % 360) + 360) % 360;
         el.classList.toggle('showing-back', a > 90 && a < 270);
-        if(sheenEl){
+        // 光澤位置每轉動約 3° 才更新一次 — 每個畫格都改 background-position
+        // 會讓整張 CD 一直重繪，但這麼慢的轉速肉眼看不出差別
+        if(sheenEl && Math.abs(ry - lastSheenRy) >= 3){
+          lastSheenRy = ry;
           var pos = 50 + Math.sin(ry * Math.PI / 180) * 45;
           sheenEl.style.backgroundPosition = pos + '% ' + pos + '%';
         }
@@ -1039,6 +1048,7 @@
       function startIdle(){
         if(reduceMotion || !window.gsap) return;
         if(idleTween) return; // already spinning — don't stack a second tween on top
+        el.classList.add('spin-active');
         idleTween = gsap.to(el, {
           rotationY:"+=360",
           duration:24 + Math.random()*10,
@@ -1047,7 +1057,7 @@
           onUpdate:function(){ updateFace(gsap.getProperty(el,"rotationY")); }
         });
       }
-      function killIdle(){ if(idleTween){ idleTween.kill(); idleTween = null; } }
+      function killIdle(){ if(idleTween){ idleTween.kill(); idleTween = null; } el.classList.remove('spin-active'); }
       if(window.gsap){ gsap.set(el, {transformPerspective:900, rotationX:state.rx}); }
       updateFace(0);
       startIdle();
@@ -1064,7 +1074,7 @@
               killIdle();
             }
           });
-        }, {root: rowViewport, rootMargin: '0px 500px', threshold: 0});
+        }, {root: rowViewport, rootMargin: '0px 120px', threshold: 0});
         offscreenObserver.observe(el);
       }
 
@@ -1449,16 +1459,43 @@
     var nLinksEd = initLinksEditor(document.getElementById('nLinks'), document.getElementById('nLinksAdd'));
     var eLinksEd = initLinksEditor(document.getElementById('eLinks'), document.getElementById('eLinksAdd'));
     var MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
+    // 上傳前先把大照片縮小(長邊最多 1200px、轉成 JPEG)：手機拍的原圖常常是
+    // 3000×4000 以上，瀏覽器顯示時要整張解碼進記憶體，同學一多網頁就會變卡。
+    // 縮完檔案通常只剩 100～300KB，CD 上看起來沒有差別。GIF 或縮不小就維持原檔。
+    function shrinkPhoto(file){
+      if(!/^image\/(jpeg|png|webp)$/.test(file.type)) return Promise.resolve(file);
+      return new Promise(function(resolve){
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function(){
+          URL.revokeObjectURL(url);
+          var MAX = 1200, w = img.naturalWidth, h = img.naturalHeight;
+          if(Math.max(w,h) <= MAX && file.size <= 600*1024){ resolve(file); return; }
+          var sc = Math.min(1, MAX / Math.max(w,h));
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(w*sc)); c.height = Math.max(1, Math.round(h*sc));
+          var ctx = c.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0,0,c.width,c.height); // PNG 透明部分轉 JPEG 會變黑，先鋪白底
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          c.toBlob(function(b){ resolve(b && b.size < file.size ? b : file); }, 'image/jpeg', 0.85);
+        };
+        img.onerror = function(){ URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+      });
+    }
     function uploadPhoto(file){
       if(!file) return Promise.resolve('');
-      var ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
-      var path = Date.now() + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
-      return sbClient.storage.from('photos').upload(path, file, {cacheControl:'3600', upsert:false})
-        .then(function(up){
-          if(up.error) throw up.error;
-          var pub = sbClient.storage.from('photos').getPublicUrl(path);
-          return pub.data.publicUrl;
-        });
+      return shrinkPhoto(file).then(function(f){
+        var shrunk = (f !== file);
+        var ext = shrunk ? 'jpg' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg');
+        var path = Date.now() + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
+        return sbClient.storage.from('photos').upload(path, f, {cacheControl:'3600', upsert:false, contentType: shrunk ? 'image/jpeg' : undefined})
+          .then(function(up){
+            if(up.error) throw up.error;
+            var pub = sbClient.storage.from('photos').getPublicUrl(path);
+            return pub.data.publicUrl;
+          });
+      });
     }
     // pulls the "<file>.jpg" path back out of a public Storage URL so a
     // replaced photo's old file can be removed from the 'photos' bucket
