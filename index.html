@@ -311,6 +311,13 @@
   .index-item:hover{color:var(--text);padding-left:12px;}
   .index-item:hover .iavatar{filter:grayscale(0);opacity:1;}
   .index-item[hidden]{display:none;}
+  .index-sort{display:flex;align-items:center;gap:8px;margin:14px 0 4px;flex-wrap:wrap;}
+  .index-sort-label{font-size:0.7rem;color:var(--muted);letter-spacing:0.08em;margin-right:2px;}
+  .index-sort-btn{font-family:inherit;font-size:0.78rem;padding:5px 14px;border:1px solid var(--line);background:none;color:var(--muted);cursor:pointer;border-radius:999px;}
+  .index-sort-btn:hover{border-color:var(--text);color:var(--text);}
+  .index-sort-btn.active{background:var(--text);color:var(--bg);border-color:var(--text);}
+  .index-group-head{font-size:0.74rem;letter-spacing:0.1em;color:var(--muted);padding:18px 0 6px;border-bottom:1px solid var(--line);margin-bottom:2px;}
+  .index-group-head[hidden]{display:none;}
   @media (max-width:640px){ .index-item .imeta{display:none;} }
 
   /* ---------------- detail panel ---------------- */
@@ -485,6 +492,12 @@
   <div class="index-search">
     <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
     <input id="search" type="text" placeholder="搜尋姓名或標籤..." aria-label="搜尋同學">
+  </div>
+  <div class="index-sort" role="group" aria-label="排序方式">
+    <span class="index-sort-label mono">排序</span>
+    <button type="button" class="index-sort-btn active" data-sort="default">預設</button>
+    <button type="button" class="index-sort-btn" data-sort="surname">姓氏</button>
+    <button type="button" class="index-sort-btn" data-sort="tag">標籤</button>
   </div>
   <p class="index-count mono" id="indexCount"></p>
   <div class="index-list" id="indexList"></div>
@@ -750,6 +763,99 @@
       });
   }
 
+  // ---- Index 排序：預設 / 姓氏 / 標籤 ----
+  var indexSortMode = 'default';
+  var collator;
+  try { collator = new Intl.Collator('zh-Hant-TW-u-co-zhuyin'); } catch(e){ collator = new Intl.Collator(); }
+  function surnameOf(name){
+    var n = (name||'').trim();
+    if(!n) return '#';
+    if(/[\u3400-\u9fff]/.test(n.charAt(0))) return n.charAt(0); // 中文：取第一個字當姓氏
+    var parts = n.split(/\s+/);
+    return parts[parts.length-1].charAt(0).toUpperCase() || '#';  // 英文：取姓(最後一個字)首字母
+  }
+  function makeIndexItem(d){
+    var photoPos = escapeHtml(d.photoPos || '50% 50%');
+    var safeImage = escapeHtml(d.image || '');
+    var avatarInner = d.image
+      ? '<span class="iavatar" style="background-image:url(\''+safeImage+'\');background-position:'+photoPos+'"></span>'
+      : '<span class="iavatar"><span class="iav-init">'+escapeHtml(d.initial)+'</span></span>';
+    var item = document.createElement('a');
+    item.className = 'index-item';
+    item.dataset.target = d.id;
+    item.innerHTML = avatarInner +
+      '<span class="nm">'+escapeHtml(d.name)+'</span>' +
+      '<span class="imeta mono">'+escapeHtml(d.tags.slice(0,2).join(' · '))+'</span>';
+    item.dataset.search = (d.name+' '+d.tags.join(' ')).toLowerCase();
+    return item;
+  }
+  function addIndexHead(text, count){
+    var h = document.createElement('div');
+    h.className = 'index-group-head mono';
+    h.textContent = text + '  ·  ' + count;
+    indexList.appendChild(h);
+  }
+  function renderIndexList(){
+    indexList.innerHTML = '';
+    var data = currentData.slice();
+    if(indexSortMode === 'surname'){
+      data.sort(function(a,b){
+        var c = collator.compare(surnameOf(a.name), surnameOf(b.name));
+        return c || collator.compare(a.name, b.name);
+      });
+      var groups = [], map = {};
+      data.forEach(function(d){
+        var k = surnameOf(d.name);
+        if(!map[k]){ map[k] = []; groups.push(k); }
+        map[k].push(d);
+      });
+      groups.forEach(function(k){
+        addIndexHead(k, map[k].length);
+        map[k].forEach(function(d){ indexList.appendChild(makeIndexItem(d)); });
+      });
+    } else if(indexSortMode === 'tag'){
+      var tmap = {}, tkeys = [], none = [];
+      data.forEach(function(d){
+        if(!d.tags.length){ none.push(d); return; }
+        d.tags.forEach(function(t){
+          if(!tmap[t]){ tmap[t] = []; tkeys.push(t); }
+          tmap[t].push(d);
+        });
+      });
+      tkeys.sort(function(a,b){ return (tmap[b].length - tmap[a].length) || collator.compare(a,b); });
+      tkeys.forEach(function(t){
+        tmap[t].sort(function(a,b){ return collator.compare(a.name,b.name); });
+        addIndexHead(t, tmap[t].length);
+        tmap[t].forEach(function(d){ indexList.appendChild(makeIndexItem(d)); });
+      });
+      if(none.length){
+        addIndexHead('未分類', none.length);
+        none.forEach(function(d){ indexList.appendChild(makeIndexItem(d)); });
+      }
+    } else {
+      data.forEach(function(d){ indexList.appendChild(makeIndexItem(d)); });
+    }
+    applyIndexSearch();
+  }
+  function applyIndexSearch(){
+    var q = (document.getElementById('search').value || '').trim().toLowerCase();
+    var seen = {}, shown = 0;
+    var head = null, headHasVisible = false;
+    Array.prototype.forEach.call(indexList.children, function(el){
+      if(el.classList.contains('index-group-head')){
+        if(head) head.hidden = !headHasVisible;
+        head = el; headHasVisible = false;
+        return;
+      }
+      var match = q === '' || (el.dataset.search||'').indexOf(q) !== -1;
+      el.hidden = !match;
+      if(match){ headHasVisible = true; if(!seen[el.dataset.target]){ seen[el.dataset.target] = 1; shown++; } }
+    });
+    if(head) head.hidden = !headHasVisible;
+    var countEl = document.getElementById('indexCount');
+    if(countEl) countEl.textContent = q === '' ? '共 ' + currentData.length + ' 位同學' : '符合 ' + shown + ' 位';
+  }
+
   // ---- build DOM (tidy horizontal row) ----
   function renderRoster(data){
     currentData = data;
@@ -794,22 +900,9 @@
         '</div>';
       stageInner.appendChild(wrap);
 
-      var avatarInner = d.image
-        ? '<span class="iavatar" style="background-image:url(\''+safeImage+'\');background-position:'+photoPos+'"></span>'
-        : '<span class="iavatar"><span class="iav-init">'+escapeHtml(d.initial)+'</span></span>';
-
-      var item = document.createElement('a');
-      item.className = 'index-item';
-      item.dataset.target = d.id;
-      item.innerHTML = avatarInner +
-        '<span class="nm">'+escapeHtml(d.name)+'</span>' +
-        '<span class="imeta mono">'+escapeHtml(d.tags.slice(0,2).join(' · '))+'</span>';
-      item.dataset.search = (d.name+' '+d.tags.join(' ')).toLowerCase();
-      indexList.appendChild(item);
     });
 
-    var countEl = document.getElementById('indexCount');
-    if(countEl) countEl.textContent = '共 ' + data.length + ' 位同學';
+    renderIndexList();
 
     attachDiscInteractions();
     applyFilter(activeFilterTags);
@@ -1216,20 +1309,13 @@
     setTimeout(function(){ openPanel(id); }, 250);
   });
 
-  document.getElementById('search').addEventListener('input', function(ev){
-    var q = ev.target.value.trim().toLowerCase();
-    var shown = 0;
-    document.querySelectorAll('.index-item').forEach(function(a){
-      var match = q === '' || (a.dataset.search||'').indexOf(q) !== -1;
-      a.hidden = !match;
-      if(match) shown++;
+  document.getElementById('search').addEventListener('input', applyIndexSearch);
+  document.querySelectorAll('.index-sort-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      indexSortMode = btn.dataset.sort;
+      document.querySelectorAll('.index-sort-btn').forEach(function(x){ x.classList.toggle('active', x === btn); });
+      renderIndexList();
     });
-    var countEl = document.getElementById('indexCount');
-    if(countEl){
-      countEl.textContent = q === ''
-        ? '共 ' + currentData.length + ' 位同學'
-        : '符合 ' + shown + ' 位';
-    }
   });
 
   // ---- add / edit submission modal (Supabase-backed) ----
