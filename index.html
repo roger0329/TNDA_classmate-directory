@@ -243,15 +243,18 @@
     padding:0 12px;cursor:pointer;
   }
   .filter-input-add:hover{background:var(--text);color:var(--bg);border-color:var(--text);}
+  /* 姓名搜尋框：高度、字體、總寬度都跟旁邊的「標籤篩選(輸入框 + 按鈕)」一致 */
+  .filter-input,.filter-input-add,.name-search{box-sizing:border-box;height:32px;}
+  .filter-input-add{width:34px;padding:0;}
   .name-search{
-    font-family:"Noto Sans TC",sans-serif;font-size:0.76rem;
+    font-family:"IBM Plex Mono","Noto Sans TC",monospace;font-size:0.7rem;
     background:var(--surface);border:1px solid var(--line);color:var(--text);
-    padding:7px 10px;width:130px;outline:none;
+    padding:0 10px;width:184px;outline:none;
   }
   .name-search:focus{border-color:var(--text);}
   .name-search::placeholder{color:var(--muted);}
-  @media (max-width:900px){ .filter-input{width:90px;} .name-search{width:100px;} }
-  @media (max-width:640px){ .filter-input-wrap{display:none;} .name-search{width:96px;} }
+  @media (max-width:900px){ .filter-input{width:90px;} .name-search{width:124px;} }
+  @media (max-width:640px){ .filter-input-wrap{display:none;} .name-search{width:130px;} }
 
   /* a hollow ring (transparent center, transparent beyond) rather than a filled
      glow — the inside is already empty before it even starts moving, so as it
